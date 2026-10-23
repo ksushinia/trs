@@ -1,0 +1,662 @@
+{
+    "Sprott B (Matlab)": {
+        "system": "Sprott B",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            0.11,
+            0.11,
+            0.11
+        ],
+        "K": [
+            2.9999999999999982,
+            0.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 500.0,
+            "t_start": 250.0,
+            "dt": 2.0
+        },
+        "sim": {
+            "h": 0.01,
+            "iterations": 50
+        },
+        "portrait": {
+            "decimator": 20,
+            "t_transient": 250.0,
+            "t_attractor": 500.0,
+            "matlab_shift": true
+        }
+    },
+    "Тестовый Sprott B": {
+        "system": "Sprott B",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            5.0,
+            2.0,
+            0.0
+        ],
+        "K": [
+            1.4,
+            5.6,
+            4.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 173.1,
+            "dt": 0.07
+        },
+        "sim": {
+            "h": 0.015,
+            "iterations": 300
+        },
+        "portrait": {
+            "decimator": 25,
+            "t_transient": 250.0,
+            "t_attractor": 500.0,
+            "matlab_shift": true
+        }
+    },
+    "Dadras Momeni (49, 49, 18) dt=1.00)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            1.0,
+            1.0,
+            1.0
+        ],
+        "K": [
+            49.4,
+            49.0,
+            18.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 245.0,
+            "dt": 1.0
+        },
+        "sim": {
+            "h": 0.01,
+            "iterations": 3
+        },
+        "portrait": {
+            "decimator": 1,
+            "t_transient": 10.0,
+            "t_attractor": 100.0,
+            "matlab_shift": true
+        }
+    },
+    "Dadras Momeni (20,0,18, dt=0.60, h=0.01)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            1.0,
+            1.0,
+            1.0
+        ],
+        "K": [
+            20.0,
+            0.0,
+            18.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 40.8,
+            "dt": 0.6
+        },
+        "sim": {
+            "h": 0.01,
+            "iterations": 12
+        },
+        "portrait": {
+            "decimator": 1,
+            "t_transient": 10.0,
+            "t_attractor": 100.0,
+            "matlab_shift": true
+        }
+    },
+    "Dadras Momeni (20,0,0, dt=0.30)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            1.0,
+            1.0,
+            1.0
+        ],
+        "K": [
+            20.0,
+            0.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 40.9,
+            "dt": 0.3
+        },
+        "sim": {
+            "h": 0.005,
+            "iterations": 220
+        },
+        "portrait": {
+            "decimator": 1,
+            "t_transient": 10.0,
+            "t_attractor": 100.0,
+            "matlab_shift": true
+        }
+    },
+    "Dadras Momeni (0,0,20, dt=0.33)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            1.0,
+            1.0,
+            1.0
+        ],
+        "K": [
+            0.0,
+            0.0,
+            20.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 41.9,
+            "dt": 0.33
+        },
+        "sim": {
+            "h": 0.005,
+            "iterations": 85
+        },
+        "portrait": {
+            "decimator": 20,
+            "t_transient": 10.0,
+            "t_attractor": 100.0,
+            "matlab_shift": true
+        }
+    },
+    "Dadras Momeni (0,27,0, dt=0.62)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            1.0,
+            1.0,
+            1.0
+        ],
+        "K": [
+            0.0,
+            27.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 40.9,
+            "dt": 0.62
+        },
+        "sim": {
+            "h": 0.005,
+            "iterations": 29
+        },
+        "portrait": {
+            "decimator": 20,
+            "t_transient": 10.0,
+            "t_attractor": 100.0,
+            "matlab_shift": true
+        }
+    },
+    "Dadras Momeni (0,26.93,0, dt=0.62)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            1.0,
+            1.0,
+            1.0
+        ],
+        "K": [
+            0.0,
+            26.93,
+            0.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 40.9,
+            "dt": 0.62
+        },
+        "sim": {
+            "h": 0.005,
+            "iterations": 27
+        },
+        "portrait": {
+            "decimator": 20,
+            "t_transient": 10.0,
+            "t_attractor": 100.0,
+            "matlab_shift": true
+        }
+    },
+    "Dadras Momeni (Kx=10.0, dt=0.35, h=0.0250, it=18)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            5.54208,
+            5.07596,
+            3.38258
+        ],
+        "K_fwd": [
+            10.0,
+            0.0,
+            0.0
+        ],
+        "K_bwd": [
+            10.0,
+            0.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 129.0,
+            "dt": 0.35
+        },
+        "sim": {
+            "h": 0.025,
+            "iterations": 25
+        }
+    },
+    "Dadras Momeni (Kx=10.5, dt=0.65, h=0.0250, it=16)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            4.0894,
+            -5.55394,
+            -2.79227
+        ],
+        "K_fwd": [
+            10.5,
+            0.0,
+            0.0
+        ],
+        "K_bwd": [
+            10.5,
+            0.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 89.0,
+            "dt": 0.65
+        },
+        "sim": {
+            "h": 0.025,
+            "iterations": 25
+        }
+    },
+    "Dadras Momeni (Kx=14.0, dt=0.32, h=0.0400, it=17)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            5.95861,
+            -4.92823,
+            -3.9466
+        ],
+        "K_fwd": [
+            14.0,
+            0.0,
+            0.0
+        ],
+        "K_bwd": [
+            14.0,
+            0.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 113.0,
+            "dt": 0.32
+        },
+        "sim": {
+            "h": 0.04,
+            "iterations": 25
+        }
+    },
+    "Dadras Momeni (Kx=16.0, dt=0.46, h=0.0350, it=15)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            6.0569,
+            -6.93372,
+            -4.3281
+        ],
+        "K_fwd": [
+            16.0,
+            0.0,
+            0.0
+        ],
+        "K_bwd": [
+            16.0,
+            0.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 118.0,
+            "dt": 0.455
+        },
+        "sim": {
+            "h": 0.035,
+            "iterations": 25
+        }
+    },
+    "Dadras Momeni (Kx=16.5, dt=0.46, h=0.0350, it=17)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            6.0569,
+            -6.93372,
+            -4.3281
+        ],
+        "K_fwd": [
+            16.5,
+            0.0,
+            0.0
+        ],
+        "K_bwd": [
+            16.5,
+            0.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 118.0,
+            "dt": 0.455
+        },
+        "sim": {
+            "h": 0.035,
+            "iterations": 25
+        }
+    },
+    "Dadras Momeni (Kx=13.0, dt=0.25, h=0.0500, it=17)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            5.75379,
+            3.7584,
+            3.19815
+        ],
+        "K_fwd": [
+            13.0,
+            0.0,
+            0.0
+        ],
+        "K_bwd": [
+            12.0,
+            0.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 79.0,
+            "dt": 0.25
+        },
+        "sim": {
+            "h": 0.05,
+            "iterations": 25
+        }
+    },
+    "Dadras Momeni (Kyf=-20.0, Kyb=20.0, dt=0.30) BEST": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            3.74196,
+            3.47335,
+            1.86052
+        ],
+        "K": [
+            0.0,
+            -20.0,
+            0.0
+        ],
+        "K_fwd": [
+            0.0,
+            -20.0,
+            0.0
+        ],
+        "K_bwd": [
+            0.0,
+            20.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 600.0,
+            "t_start": 301.0,
+            "dt": 0.3
+        },
+        "sim": {
+            "h": 0.01,
+            "iterations": 300
+        },
+        "portrait": {
+            "decimator": 2,
+            "t_transient": 50.0,
+            "t_attractor": 250.0,
+            "matlab_shift": true
+        }
+    },
+    "Dadras Momeni (Kzf=-36.0, Kxb=42.0, dt=0.30) BEST": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            4.80934,
+            1.95634,
+            0.28486
+        ],
+        "K": [
+            0.0,
+            0.0,
+            -36.0
+        ],
+        "K_fwd": [
+            0.0,
+            0.0,
+            -36.0
+        ],
+        "K_bwd": [
+            0.0,
+            0.0,
+            42.0
+        ],
+        "time": {
+            "t_max": 600.0,
+            "t_start": 331.0,
+            "dt": 0.3
+        },
+        "sim": {
+            "h": 0.01,
+            "iterations": 1000
+        },
+        "portrait": {
+            "decimator": 1,
+            "t_transient": 40.0,
+            "t_attractor": 140.0,
+            "matlab_shift": true
+        }
+    },
+    "test y dadras": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            4.92202,
+            -3.91181,
+            -2.92396
+        ],
+        "K": [
+            0.0,
+            -20.0,
+            0.0
+        ],
+        "K_fwd": [
+            0.0,
+            -20.0,
+            0.0
+        ],
+        "K_bwd": [
+            0.0,
+            20.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 600.0,
+            "t_start": 311.0,
+            "dt": 0.3
+        },
+        "sim": {
+            "h": 0.01,
+            "iterations": 150
+        },
+        "portrait": {
+            "decimator": 1,
+            "t_transient": 40.0,
+            "t_attractor": 140.0,
+            "matlab_shift": true
+        }
+    },
+    "Dadras Momeni (Kx=0.0, dt=0.30, h=0.0100, it=75)": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            8.52165,
+            5.06849,
+            2.32408
+        ],
+        "K_fwd": [
+            0.0,
+            -30.0,
+            0.0
+        ],
+        "K_bwd": [
+            0.0,
+            30.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 300.0,
+            "t_start": 300.0,
+            "dt": 0.3
+        },
+        "sim": {
+            "h": 0.01,
+            "iterations": 150
+        }
+    },
+    "Dadras Momeni (Kxf=6.0, Kxb=4.0, dt=0.30) BEST": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            5.47593,
+            -3.04432,
+            -1.20059
+        ],
+        "K": [
+            6.0,
+            0.0,
+            0.0
+        ],
+        "K_fwd": [
+            6.0,
+            0.0,
+            0.0
+        ],
+        "K_bwd": [
+            4.0,
+            0.0,
+            0.0
+        ],
+        "time": {
+            "t_max": 600.0,
+            "t_start": 363.0,
+            "dt": 0.3
+        },
+        "sim": {
+            "h": 0.01,
+            "iterations": 1000
+        },
+        "portrait": {
+            "decimator": 10,
+            "t_transient": 50.0,
+            "t_attractor": 250.0,
+            "matlab_shift": true
+        }
+    }
+}
