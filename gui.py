@@ -47,42 +47,68 @@ def get_matlab_custom_cmap():
     return ListedColormap(full_colors)
 
 
-def create_smooth_segments(xs, ys, zs, errs, subs=6):
+def create_smooth_segments(xs, ys, zs, errs, subs=4):
     """
-    Честная векторизованная интерполяция цвета (Gouraud shading) в NumPy.
-    subs=6 дает полный непрерывный спектр палитры Turbo без полос.
+    Гибридный рендер:
+    - Градиентные переходы: точное микро-дробление (subs=4) с мягким ядром [0.2, 0.6, 0.2].
+    - Однородные участки: сжаты в длинные непрерывные линии.
+    Дает ту самую красивую интерполяцию при легком вращении 3D-сцены.
     """
     n = len(xs)
     if n < 2:
         return np.empty((0, 2, 3)), np.empty(0)
 
-    subs = max(1, int(subs or 6))
+    subs = max(2, int(subs or 4))
     pts = np.column_stack([xs, ys, zs])
-    # Ограничиваем ошибки строгим диапазоном шкалы, чтобы не было скачков
     errs = np.clip(np.asarray(errs, dtype=np.float64), -12.0, 2.0)
 
-    if subs == 1:
-        segments = np.stack([pts[:-1], pts[1:]], axis=1)
-        colors = 0.5 * (errs[:-1] + errs[1:])
-        return segments, colors
+    # 1. Тот самый мягкий 3-точечный фильтр из удачного варианта
+    kernel = np.array([0.2, 0.6, 0.2])
+    errs_smooth = np.convolve(errs, kernel, mode='same')
+
+    # 2. Определяем участки изменения цвета
+    d_err = np.abs(errs_smooth[1:] - errs_smooth[:-1])
+    is_trans = d_err > 0.03
+    n_segs = n - 1
+
+    # 3. Находим границы между переходами и плоскими зонами
+    changes = np.where(is_trans[1:] != is_trans[:-1])[0] + 1
+    splits = np.concatenate([[0], changes, [n_segs]])
+
+    segments = []
+    colors = []
 
     alphas = np.linspace(0.0, 1.0, subs + 1)
-
-    # Векторизованный расчет координат
-    p0 = pts[:-1, np.newaxis, :]
-    p1 = pts[1:, np.newaxis, :]
     al = alphas[np.newaxis, :, np.newaxis]
-    sub_pts = p0 * (1.0 - al) + p1 * al
 
-    # Векторизованный расчет градиента
-    e0 = errs[:-1, np.newaxis]
-    e1 = errs[1:, np.newaxis]
-    sub_errs = e0 * (1.0 - alphas[np.newaxis, :]) + e1 * alphas[np.newaxis, :]
+    for s_idx in range(len(splits) - 1):
+        start = splits[s_idx]
+        end = splits[s_idx + 1]
 
-    segments = np.stack([sub_pts[:, :-1, :], sub_pts[:, 1:, :]], axis=2).reshape(-1, 2, 3)
-    colors = 0.5 * (sub_errs[:, :-1] + sub_errs[:, 1:]).reshape(-1)
+        if not is_trans[start]:
+            # Однородная зона: сливаем в 1 непрерывную полилинию (колоссальная экономия FPS)
+            # Конец предыдущего участка и начало следующего строго совпадают в pts[end]
+            polyline = pts[start : end + 1]
+            segments.append(polyline)
+            colors.append(np.mean(errs_smooth[start : end + 1]))
+        else:
+            # Та самая детальная интерполяция: микро-сегменты с непрерывным градиентом
+            p0 = pts[start : end, np.newaxis, :]
+            p1 = pts[start + 1 : end + 1, np.newaxis, :]
+            sub_pts = p0 * (1.0 - al) + p1 * al
 
-    return segments, colors
+            e0 = errs_smooth[start : end, np.newaxis]
+            e1 = errs_smooth[start + 1 : end + 1, np.newaxis]
+            sub_errs = e0 * (1.0 - alphas[np.newaxis, :]) + e1 * alphas[np.newaxis, :]
+
+            segs = np.stack([sub_pts[:, :-1, :], sub_pts[:, 1:, :]], axis=2).reshape(-1, 2, 3)
+            cols = 0.5 * (sub_errs[:, :-1] + sub_errs[:, 1:]).reshape(-1)
+
+            for seg, col in zip(segs, cols):
+                segments.append(seg)
+                colors.append(col)
+
+    return segments, np.asarray(colors, dtype=np.float64)
 
 class PortraitWorker(QThread):
     progress = pyqtSignal(int)
@@ -101,6 +127,7 @@ class PortraitWorker(QThread):
 class TRSApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.ax_3d = None
         self.setWindowTitle("Time-Reversed Synchronization Interface")
         self.resize(1340, 880)
 
@@ -837,26 +864,26 @@ class TRSApp(QMainWindow):
         self.lbl_status.setText(f"Готово. Финальная ошибка: {final_err:.2e}")
 
     def redraw_3d_only(self):
-        """Отрисовка 3D портрета с мгновенным переключением видимости."""
         self.fig_3d.clear()
         ax_3d = self.fig_3d.add_subplot(111, projection='3d')
 
-        # Отрисовка карты ошибок только если включен чекбокс и данные закэшированы
+        # Отключаем глобальный пересчет z-order сцены при вращении (дает прирост FPS)
+        if hasattr(ax_3d, 'computed_zorder'):
+            ax_3d.computed_zorder = False
+
         if self.chk_show_portrait.isChecked() and self.portrait_segments is not None:
             smooth_segs, smooth_errs = self.portrait_segments
 
             norm = Normalize(vmin=-12.0, vmax=2.0)
             matlab_cmap = get_matlab_custom_cmap()
 
-            lc = Line3DCollection(
-                smooth_segs,
-                cmap=matlab_cmap,
-                norm=norm,
-                linewidth=1.8,
-                capstyle='round',  # Закругляет концы каждого сегмента, убирая щели
-                joinstyle='round'  # Монолитно сплавляет стыки между ними
-            )
+            # linewidth=1.2 для быстрой растризации
+            lc = Line3DCollection(smooth_segs, cmap=matlab_cmap, norm=norm, linewidth=1.2)
             lc.set_array(smooth_errs)
+
+            # Отключаем поштучную сортировку 16000 отрезков по Z при движении мыши:
+            lc.set_sort_zpos(0)
+
             ax_3d.add_collection(lc)
 
             xs, ys, zs, _ = self.portrait_data
@@ -986,6 +1013,7 @@ class TRSApp(QMainWindow):
         """Строит 3D фазовый портрет для выбранного в поиске решения."""
         self.apply_settings_dict(solution)
         self.build_portrait()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
