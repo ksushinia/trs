@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QDoubleSpinBox, QSpinBox, QSlider, QPushButton, QCheckBox,
     QGroupBox, QSplitter, QComboBox, QTabWidget, QScrollArea, QProgressBar,
-    QMenu, QMessageBox
+    QMenu, QMessageBox, QAbstractSpinBox
 )
 from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal, QThread, QObject, QEvent
 from PyQt6.QtGui import QDesktopServices
@@ -212,6 +212,17 @@ class PortraitWorker(QThread):
         self.kwargs["progress_callback"] = self.progress.emit
         data = compute_error_mapped_attractor(**self.kwargs)
         self.finished.emit(data)
+
+class NoWheelFilter(QObject): # чтобы дебилка колесико не прокручивало значения
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Wheel and isinstance(
+            obj, (QAbstractSpinBox, QComboBox, QSlider)
+        ):
+            parent = obj.parentWidget()
+            if parent is not None:
+                QApplication.sendEvent(parent, event)   # пусть прокрутится ScrollArea
+            return True
+        return super().eventFilter(obj, event)
 
 class TRSApp(QMainWindow):
     def __init__(self):
@@ -1158,6 +1169,8 @@ class TRSApp(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    no_wheel = NoWheelFilter(app)
+    app.installEventFilter(no_wheel)
     window = TRSApp()
     window.show()
     sys.exit(app.exec())
