@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QSplitter, QComboBox, QTabWidget, QScrollArea, QProgressBar,
     QMenu, QMessageBox
 )
-from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal, QThread
+from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal, QThread, QObject, QEvent
 from PyQt6.QtGui import QDesktopServices
 
 from config import DEFAULT_SIM_CONFIG, SYSTEMS_CONFIG
@@ -110,6 +110,95 @@ def create_smooth_segments(xs, ys, zs, errs, subs=4):
 
     return segments, np.asarray(colors, dtype=np.float64)
 
+class SmoothPlotZoomFilter(QObject):
+    """
+    Плавный зум тачпадом (нативный пинч двумя пальцами + плавный скролл).
+    Масштабирует 2D-графики строго вокруг курсора (включая log-шкалы) и приближает камеру в 3D.
+    """
+    def __init__(self, canvas, fig, parent=None):
+        super().__init__(parent or canvas)
+        self.canvas = canvas
+        self.fig = fig
+
+    def eventFilter(self, obj, event):
+        # 1. Нативный жест сведения/разведения пальцев (Pinch to Zoom)
+        if event.type() == QEvent.Type.NativeGesture:
+            if event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture:
+                scale = 1.0 - event.value() * 1.5
+                self._apply_zoom(scale, event.position())
+                return True
+
+        # 2. Плавный двухпальцевый скролл тачпадом или колесо мыши
+        elif event.type() == QEvent.Type.Wheel:
+            delta = event.angleDelta().y()
+            if abs(delta) > 0:
+                scale = 0.88 ** (delta / 120.0)
+                self._apply_zoom(scale, event.position())
+                return True
+
+        return super().eventFilter(obj, event)
+
+    def _apply_zoom(self, scale, pos):
+        if not self.fig.axes:
+            return
+
+        ax = self.fig.axes[0]
+
+        # Для 3D графика: меняем дистанцию камеры (zoom in/out)
+        if hasattr(ax, 'dist') and hasattr(ax, 'elev'):
+            ax.dist = max(2.0, min(80.0, ax.dist * scale))
+            self.canvas.draw_idle()
+            return
+
+        # Для 2D графиков: масштабирование строго в точку под курсором
+        dpr = getattr(self.canvas, 'device_pixel_ratio', self.canvas.devicePixelRatio())
+        px = pos.x() * dpr
+        py = (self.canvas.height() - pos.y()) * dpr
+
+        target_ax = None
+        for a in self.fig.axes:
+            if a.bbox.contains(px, py):
+                target_ax = a
+                break
+        if target_ax is None:
+            target_ax = ax
+
+        try:
+            x_cur, y_cur = target_ax.transData.inverted().transform((px, py))
+        except Exception:
+            x_cur, y_cur = None, None
+
+        # Зумируем ось X
+        xlim = target_ax.get_xlim()
+        if x_cur is not None and min(xlim) <= x_cur <= max(xlim):
+            new_x0 = x_cur - (x_cur - xlim[0]) * scale
+            new_x1 = x_cur + (xlim[1] - x_cur) * scale
+        else:
+            x_mid = 0.5 * (xlim[0] + xlim[1])
+            new_x0 = x_mid - (x_mid - xlim[0]) * scale
+            new_x1 = x_mid + (xlim[1] - x_mid) * scale
+        target_ax.set_xlim(new_x0, new_x1)
+
+        # Зумируем ось Y (с поддержкой логарифмической оси у зигзага и RMS)
+        ylim = target_ax.get_ylim()
+        if target_ax.get_yscale() == 'log' and ylim[0] > 0 and ylim[1] > 0:
+            log_y0 = np.log10(ylim[0])
+            log_y1 = np.log10(ylim[1])
+            log_yc = np.log10(y_cur) if (y_cur is not None and y_cur > 0) else 0.5 * (log_y0 + log_y1)
+            target_ax.set_ylim(10 ** (log_yc - (log_yc - log_y0) * scale),
+                               10 ** (log_yc + (log_y1 - log_yc) * scale))
+        else:
+            if y_cur is not None and min(ylim) <= y_cur <= max(ylim):
+                new_y0 = y_cur - (y_cur - ylim[0]) * scale
+                new_y1 = y_cur + (ylim[1] - y_cur) * scale
+            else:
+                y_mid = 0.5 * (ylim[0] + ylim[1])
+                new_y0 = y_mid - (y_mid - ylim[0]) * scale
+                new_y1 = y_mid + (ylim[1] - y_mid) * scale
+            target_ax.set_ylim(new_y0, new_y1)
+
+        self.canvas.draw_idle()
+
 class PortraitWorker(QThread):
     progress = pyqtSignal(int)
     finished = pyqtSignal(object)
@@ -137,6 +226,9 @@ class TRSApp(QMainWindow):
         self.calc_timer.timeout.connect(self.calculate_trs)
 
         self._block_signals = False
+
+        # Базовый начальный ракурс камеры 3D (elev, azim)
+        self._initial_view_3d = (30, -60)
 
         # Кэш расчетов
         self.portrait_data = None
@@ -389,8 +481,13 @@ class TRSApp(QMainWindow):
         self.btn_clear_portrait.setStyleSheet("padding: 6px;")
         self.btn_clear_portrait.clicked.connect(self.clear_portrait)
 
+        self.btn_reset_view = QPushButton("Исходный ракурс")
+        self.btn_reset_view.setStyleSheet("padding: 6px;")
+        self.btn_reset_view.clicked.connect(self.reset_3d_view)
+
         btn_portrait_layout.addWidget(self.btn_build_portrait)
         btn_portrait_layout.addWidget(self.btn_clear_portrait)
+        btn_portrait_layout.addWidget(self.btn_reset_view)
         grid_p.addLayout(btn_portrait_layout, 7, 0, 1, 2)
 
         # Зеленый индикатор прогресса (как MATLAB waitbar)
@@ -487,9 +584,25 @@ class TRSApp(QMainWindow):
         self.v_grid_splitter.addWidget(self.h_top_splitter)
         self.v_grid_splitter.addWidget(self.h_bot_splitter)
 
+        # СТАЛО:
         main_splitter.addWidget(self.v_grid_splitter)
         main_splitter.setStretchFactor(0, 0)
         main_splitter.setStretchFactor(1, 1)
+
+        # 1. НАСТРОЙКА РАЗДЕЛИТЕЛЕЙ (вставляем сюда)
+        splitter_style = """
+                    QSplitter::handle {
+                        background-color: #cbd5e1;
+                    }
+                    QSplitter::handle:hover {
+                        background-color: #3b82f6;
+                    }
+                """
+        for sp in (main_splitter, self.v_grid_splitter, self.h_top_splitter, self.h_bot_splitter):
+            sp.setStyleSheet(splitter_style)
+            sp.setHandleWidth(6)  # Удобнее ухватиться мышкой
+            sp.setChildrenCollapsible(False)  # Окна не схлопываются в ноль
+            sp.setOpaqueResize(False)  # Мгновенное и плавное перетаскивание
 
         # Настройка контекстного меню (ПКМ)
         self.setup_canvas_context_menu(self.canvas_3d, self.fig_3d, "3D Фазовый портрет")
@@ -499,6 +612,13 @@ class TRSApp(QMainWindow):
 
         self.connect_signals()
         self.sync_sliders()
+
+        # 2. ПОДКЛЮЧЕНИЕ ЗУМА ТАЧПАДОМ (вставляем в самый конец init_ui)
+        for cvs, fig in ((self.canvas_3d, self.fig_3d),
+                         (self.canvas_win, self.fig_win),
+                         (self.canvas_zigzag, self.fig_zigzag),
+                         (self.canvas_conv, self.fig_conv)):
+            cvs.installEventFilter(SmoothPlotZoomFilter(cvs, fig, self))
 
     def get_plot_mapping(self):
         """Словарь привязки графиков и их названий."""
@@ -771,6 +891,15 @@ class TRSApp(QMainWindow):
         self.redraw_3d_only()
         self.lbl_status.setText("Фазовый портрет убран.")
 
+    def reset_3d_view(self):
+        """Возвращает ракурс (30, -60) и дистанцию камеры 3D к исходным значениям."""
+        if hasattr(self, 'ax_3d') and self.ax_3d is not None:
+            init_v = getattr(self, '_initial_view_3d', (30, -60))
+            self.ax_3d.view_init(elev=init_v[0], azim=init_v[1])
+            if hasattr(self.ax_3d, 'dist'):
+                self.ax_3d.dist = 10  # сброс приближения камеры
+            self.canvas_3d.draw_idle()
+
     def build_portrait(self):
         sys_name = self.combo_system.currentText()
         if sys_name not in SYSTEMS_CONFIG or sys_name not in SYSTEMS_REGISTRY:
@@ -864,8 +993,20 @@ class TRSApp(QMainWindow):
         self.lbl_status.setText(f"Готово. Финальная ошибка: {final_err:.2e}")
 
     def redraw_3d_only(self):
+        # 1. Запоминаем текущий ракурс камеры перед перерисовкой (если сцена уже была)
+        saved_view = None
+        if hasattr(self, 'ax_3d') and self.ax_3d is not None:
+            saved_view = (self.ax_3d.elev, self.ax_3d.azim)
+
         self.fig_3d.clear()
-        ax_3d = self.fig_3d.add_subplot(111, projection='3d')
+        self.ax_3d = self.fig_3d.add_subplot(111, projection='3d')
+        ax_3d = self.ax_3d
+
+        # 2. Восстанавливаем ракурс, чтобы камера не прыгала при переключении галочек
+        if saved_view is not None:
+            ax_3d.view_init(elev=saved_view[0], azim=saved_view[1])
+        else:
+            ax_3d.view_init(elev=self._initial_view_3d[0], azim=self._initial_view_3d[1])
 
         # Отключаем глобальный пересчет z-order сцены при вращении (дает прирост FPS)
         if hasattr(ax_3d, 'computed_zorder'):
