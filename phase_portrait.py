@@ -4,6 +4,7 @@ phase_portrait.py
 """
 import math
 import numpy as np
+from fast_trs import pack_system_params, integrate_master, run_fast_portrait_chunk
 
 def run_trs_window(y0, h, ym_window, ns, nglobal,
                    K_x_fwd, K_y_fwd, K_z_fwd,
@@ -65,88 +66,50 @@ def compute_error_mapped_attractor(step_forward, step_backward, params,
                                    t_transient=40.0, t_total=140.0,
                                    window_dt=1.0, N_iterations=50, decimator=1,
                                    use_matlab_shift=True,
-                                   progress_callback=None):
-    """
-    Строит аттрактор системы и картографирует финальную ошибку TRS в каждой точке.
-    """
+                                   progress_callback=None,
+                                   sys_name="Dadras Momeni"):
     TT_iter = int(round(t_transient / h))
     total_steps = int(round(t_total / h))
     ns = max(2, int(round(window_dt / h)))
 
-    xm, ym, zm = master_0
-
-    # 1. Генерация Master-траектории с учетом переходного процесса
-    all_x, all_y, all_z = [], [], []
-    for _ in range(total_steps + ns):
-        xm, ym, zm = step_forward(xm, ym, zm, h, params=params)
-        all_x.append(xm)
-        all_y.append(ym)
-        all_z.append(zm)
+    # 1. Сверхбыстрая генерация Master-траектории через Numba
+    sys_id, p_arr = pack_system_params(sys_name, params)
+    n_total_steps = total_steps + ns
+    xm_all, ym_all, zm_all, valid = integrate_master(
+        sys_id, p_arr, master_0[0], master_0[1], master_0[2], h, n_total_steps
+    )
 
     # Отсекаем переходный процесс
-    traj_x = all_x[TT_iter:]
-    traj_y = all_y[TT_iter:]
-    traj_z = all_z[TT_iter:]
+    xm = xm_all[TT_iter:valid]
+    ym = ym_all[TT_iter:valid]
+    zm = zm_all[TT_iter:valid]
 
-    N = len(traj_x) - ns
+    N = len(xm) - ns
     if N <= 0:
         return [], [], [], []
 
-    start_indices = list(range(0, N, max(1, decimator)))
+    start_indices = np.arange(0, N, max(1, decimator), dtype=np.int64)
     num_evals = len(start_indices)
 
-    xs_starts, ys_starts, zs_starts = [], [], []
-    err10_list = []
+    # Точки траектории для построения аттрактора
+    xs_starts = xm[start_indices]
+    ys_starts = ym[start_indices]
+    zs_starts = zm[start_indices]
 
-    # Начальные условия y0 для TRS
-    if use_matlab_shift:
-        y0_target = (traj_x[0] + 0.01, traj_y[0] + 0.01, traj_z[0] + 0.01)
-    else:
-        y0_target = slave_0
+    # 2. Многопоточный расчет окон порциями для живого прогресс-бара
+    err10_list = np.empty(num_evals, dtype=np.float64)
+    chunk_size = max(500, num_evals // 20)
 
-    step_notify = max(1, num_evals // 100)
-
-    for idx_num, start_idx in enumerate(start_indices):
-        if progress_callback and (idx_num % step_notify == 0 or idx_num == num_evals - 1):
-            progress_callback(int((idx_num / num_evals) * 100))
-
-        sub_ym = [
-            traj_x[start_idx: start_idx + ns],
-            traj_y[start_idx: start_idx + ns],
-            traj_z[start_idx: start_idx + ns]
-        ]
-
-        xs_starts.append(sub_ym[0][0])
-        ys_starts.append(sub_ym[1][0])
-        zs_starts.append(sub_ym[2][0])
-
-        # Слейв стартует строго в окрестности (+0.01) НАЧАЛА ТЕКУЩЕГО ОКНА!
-        if use_matlab_shift:
-            y0_current = (sub_ym[0][0] + 0.01, sub_ym[1][0] + 0.01, sub_ym[2][0] + 0.01)
-        else:
-            y0_current = slave_0
-
-        err = run_trs_window(
-            y0=y0_current,
-            h=h,
-            ym_window=sub_ym,
-            ns=ns,
-            nglobal=N_iterations,
-            K_x_fwd=K_x_fwd,
-            K_y_fwd=K_y_fwd,
-            K_z_fwd=K_z_fwd,
-            K_x_bwd=K_x_bwd,
-            K_y_bwd=K_y_bwd,
-            K_z_bwd=K_z_bwd,
-            step_forward=step_forward,
-            step_backward=step_backward,
-            params=params
+    for i in range(0, num_evals, chunk_size):
+        chunk_idx = start_indices[i : i + chunk_size]
+        err_chunk = run_fast_portrait_chunk(
+            sys_id, p_arr, xm, ym, zm, chunk_idx, ns, N_iterations,
+            K_x_fwd, K_y_fwd, K_z_fwd, K_x_bwd, K_y_bwd, K_z_bwd,
+            h, use_matlab_shift, slave_0[0], slave_0[1], slave_0[2]
         )
-
-        if math.isnan(err) or err > 100.0:
-            err = 1000.0
-
-        err10_list.append(math.log10(max(err, 1e-16)))
+        err10_list[i : i + chunk_size] = err_chunk
+        if progress_callback:
+            progress_callback(int((min(i + chunk_size, num_evals) / num_evals) * 100))
 
     if progress_callback:
         progress_callback(100)

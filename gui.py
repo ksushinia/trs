@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QSplitter, QComboBox, QTabWidget, QScrollArea, QProgressBar,
     QMenu, QMessageBox
 )
-from PyQt6.QtCore import Qt, QTimer, QUrl
+from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal, QThread
 from PyQt6.QtGui import QDesktopServices
 
 from config import DEFAULT_SIM_CONFIG, SYSTEMS_CONFIG
@@ -48,27 +48,55 @@ def get_matlab_custom_cmap():
 
 
 def create_smooth_segments(xs, ys, zs, errs, subs=6):
-    """Разбивает каждый отрезок на микро-сегменты с интерполяцией ошибки."""
+    """
+    Честная векторизованная интерполяция цвета (Gouraud shading) в NumPy.
+    subs=6 дает полный непрерывный спектр палитры Turbo без полос.
+    """
     n = len(xs)
     if n < 2:
         return np.empty((0, 2, 3)), np.empty(0)
 
-    all_segs = []
-    all_colors = []
+    subs = max(1, int(subs or 6))
+    pts = np.column_stack([xs, ys, zs])
+    # Ограничиваем ошибки строгим диапазоном шкалы, чтобы не было скачков
+    errs = np.clip(np.asarray(errs, dtype=np.float64), -12.0, 2.0)
 
-    for i in range(n - 1):
-        x_sub = np.linspace(xs[i], xs[i + 1], subs + 1)
-        y_sub = np.linspace(ys[i], ys[i + 1], subs + 1)
-        z_sub = np.linspace(zs[i], zs[i + 1], subs + 1)
-        c_sub = np.linspace(errs[i], errs[i + 1], subs + 1)
+    if subs == 1:
+        segments = np.stack([pts[:-1], pts[1:]], axis=1)
+        colors = 0.5 * (errs[:-1] + errs[1:])
+        return segments, colors
 
-        pts = np.column_stack([x_sub, y_sub, z_sub])
-        for s in range(subs):
-            all_segs.append([pts[s], pts[s + 1]])
-            all_colors.append(0.5 * (c_sub[s] + c_sub[s + 1]))
+    alphas = np.linspace(0.0, 1.0, subs + 1)
 
-    return np.array(all_segs), np.array(all_colors)
+    # Векторизованный расчет координат
+    p0 = pts[:-1, np.newaxis, :]
+    p1 = pts[1:, np.newaxis, :]
+    al = alphas[np.newaxis, :, np.newaxis]
+    sub_pts = p0 * (1.0 - al) + p1 * al
 
+    # Векторизованный расчет градиента
+    e0 = errs[:-1, np.newaxis]
+    e1 = errs[1:, np.newaxis]
+    sub_errs = e0 * (1.0 - alphas[np.newaxis, :]) + e1 * alphas[np.newaxis, :]
+
+    segments = np.stack([sub_pts[:, :-1, :], sub_pts[:, 1:, :]], axis=2).reshape(-1, 2, 3)
+    colors = 0.5 * (sub_errs[:, :-1] + sub_errs[:, 1:]).reshape(-1)
+
+    return segments, colors
+
+class PortraitWorker(QThread):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(object)
+
+    def __init__(self, kwargs):
+        super().__init__()
+        self.kwargs = kwargs
+
+    def run(self):
+        # Передаем наш Qt-сигнал как колбэк прогресса
+        self.kwargs["progress_callback"] = self.progress.emit
+        data = compute_error_mapped_attractor(**self.kwargs)
+        self.finished.emit(data)
 
 class TRSApp(QMainWindow):
     def __init__(self):
@@ -726,53 +754,43 @@ class TRSApp(QMainWindow):
 
         self.btn_build_portrait.setEnabled(False)
         self.progress_bar.setValue(0)
-        self.lbl_status.setText("Расчет карты ошибок 3D (0%)...")
-        QApplication.processEvents()
+        self.lbl_status.setText("Расчет карты ошибок 3D в фоне...")
 
-        def update_progress(pct):
-            self.progress_bar.setValue(pct)
-            self.lbl_status.setText(f"Расчет карты ошибок 3D ({pct}%)...")
-            QApplication.processEvents()
-
-        h = self.sp_h.value()
-        decimator = self.sp_decimator.value()
-        t_trans = self.sp_t_trans.value()
-        t_attr = self.sp_t_attr.value()
-        dt_win = self.sp_dt.value()
-        n_iters = self.sp_iter.value()
-
-        m0 = (self.sp_mx.value(), self.sp_my.value(), self.sp_mz.value())
-        s0 = (self.sp_sx.value(), self.sp_sy.value(), self.sp_sz.value())
-
-        self.portrait_data = compute_error_mapped_attractor(
+        worker_kwargs = dict(
+            sys_name=sys_name,
             step_forward=sys_funcs["forward"],
             step_backward=sys_funcs["backward"],
             params=sys_conf["params"],
-            master_0=m0,
-            slave_0=s0,
+            master_0=(self.sp_mx.value(), self.sp_my.value(), self.sp_mz.value()),
+            slave_0=(self.sp_sx.value(), self.sp_sy.value(), self.sp_sz.value()),
             use_matlab_shift=self.chk_matlab_shift.isChecked(),
-            h=h,
+            h=self.sp_h.value(),
             K_x_fwd=self.sp_kx_fwd.value(),
             K_y_fwd=self.sp_ky_fwd.value(),
             K_z_fwd=self.sp_kz_fwd.value(),
             K_x_bwd=self.sp_kx_bwd.value(),
             K_y_bwd=self.sp_ky_bwd.value(),
             K_z_bwd=self.sp_kz_bwd.value(),
-            t_transient=t_trans,
-            t_total=t_attr,
-            window_dt=dt_win,
-            N_iterations=n_iters,
-            decimator=decimator,
-            progress_callback=update_progress
+            t_transient=self.sp_t_trans.value(),
+            t_total=self.sp_t_attr.value(),
+            window_dt=self.sp_dt.value(),
+            N_iterations=self.sp_iter.value(),
+            decimator=self.sp_decimator.value()
         )
 
-        # Предварительно кэшируем геометрию один раз
+        self._portrait_thread = PortraitWorker(worker_kwargs)
+        self._portrait_thread.progress.connect(self.progress_bar.setValue)
+        self._portrait_thread.finished.connect(self._on_portrait_finished)
+        self._portrait_thread.start()
+
+    def _on_portrait_finished(self, portrait_data):
+        self.portrait_data = portrait_data
         if self.portrait_data is not None:
             xs, ys, zs, err10 = self.portrait_data
-            if len(xs) > 1:
-                self.portrait_segments = create_smooth_segments(xs, ys, zs, err10, subs=6)
-            else:
-                self.portrait_segments = None
+            # Передаем subs=6 (вместо subs=2)
+            self.portrait_segments = create_smooth_segments(xs, ys, zs, err10, subs=6) if len(xs) > 1 else None
+        else:
+            self.portrait_segments = None
 
         self.chk_show_portrait.setChecked(True)
         self.redraw_3d_only()
@@ -830,7 +848,14 @@ class TRSApp(QMainWindow):
             norm = Normalize(vmin=-12.0, vmax=2.0)
             matlab_cmap = get_matlab_custom_cmap()
 
-            lc = Line3DCollection(smooth_segs, cmap=matlab_cmap, norm=norm, linewidth=1.5)
+            lc = Line3DCollection(
+                smooth_segs,
+                cmap=matlab_cmap,
+                norm=norm,
+                linewidth=1.8,
+                capstyle='round',  # Закругляет концы каждого сегмента, убирая щели
+                joinstyle='round'  # Монолитно сплавляет стыки между ними
+            )
             lc.set_array(smooth_errs)
             ax_3d.add_collection(lc)
 
@@ -861,7 +886,7 @@ class TRSApp(QMainWindow):
         ax_3d.tick_params(labelsize=7)
 
         self.fig_3d.tight_layout()
-        self.canvas_3d.draw()
+        self.canvas_3d.draw_idle()
 
     def redraw_all(self):
         self.redraw_3d_only()
@@ -886,7 +911,7 @@ class TRSApp(QMainWindow):
         ax_win.grid(True, linestyle=":")
         ax_win.legend(loc="upper right", fontsize=8)
         self.fig_win.tight_layout()
-        self.canvas_win.draw()
+        self.canvas_win.draw_idle()
 
         # 3. Зигзаг TRS
         self.fig_zigzag.clear()
@@ -913,7 +938,7 @@ class TRSApp(QMainWindow):
         if total > 0:
             ax_zigzag.legend(loc="upper right", fontsize=7)
         self.fig_zigzag.tight_layout()
-        self.canvas_zigzag.draw()
+        self.canvas_zigzag.draw_idle()
 
         # 4. Сходимость по итерациям
         self.fig_conv.clear()
@@ -926,7 +951,7 @@ class TRSApp(QMainWindow):
         ax_conv.set_ylim(1e-16, 1e2)
         ax_conv.grid(True, which='both', linestyle=':')
         self.fig_conv.tight_layout()
-        self.canvas_conv.draw()
+        self.canvas_conv.draw_idle()
 
     def open_param_search_dialog(self):
         """Открывает независимое окно перебора параметров (главное окно полностью доступно)."""

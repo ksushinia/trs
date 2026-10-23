@@ -5,6 +5,7 @@ fast_trs.py
 """
 from numba import njit
 import numpy as np
+from numba import prange
 
 from systems import (
     _sprott_b_fwd_core, _sprott_b_bwd_core,
@@ -251,3 +252,69 @@ def run_fast_trs_slave_window(sys_id, p_arr,
             return True, it + 1, err
 
     return (final_err <= target_err), max_iters, final_err
+
+@njit(nogil=True, fastmath=True, parallel=True)
+def run_fast_portrait_chunk(sys_id, p_arr, xm, ym, zm, start_indices, ns, nglobal,
+                            kxf, kyf, kzf, kxb, kyb, kzb, h, use_matlab_shift,
+                            sx0, sy0, sz0):
+    n_pts = len(start_indices)
+    err10_out = np.empty(n_pts, dtype=np.float64)
+
+    for idx in prange(n_pts):
+        start_idx = start_indices[idx]
+        if use_matlab_shift:
+            xs = xm[start_idx] + 0.01
+            ys = ym[start_idx] + 0.01
+            zs = zm[start_idx] + 0.01
+        else:
+            xs = sx0
+            ys = sy0
+            zs = sz0
+
+        final_err = 1000.0
+        diverged = False
+
+        for j in range(1, nglobal + 1):
+            # FORWARD
+            for i in range(ns - 1):
+                cur_m = start_idx + i
+                if j == nglobal and i == ns - 2:
+                    ex = xm[cur_m] - xs
+                    ey = ym[cur_m] - ys
+                    ez = zm[cur_m] - zs
+                    final_err = np.sqrt(ex * ex + ey * ey + ez * ez)
+
+                xs, ys, zs = _step_fwd_dispatch(
+                    sys_id, xs, ys, zs, h,
+                    xm[cur_m], ym[cur_m], zm[cur_m],
+                    kxf, kyf, kzf, p_arr
+                )
+                if np.isnan(xs) or abs(xs) > 1e4:
+                    diverged = True
+                    break
+
+            if diverged:
+                break
+
+            # BACKWARD
+            if j < nglobal:
+                for i in range(ns - 1, 0, -1):
+                    cur_m = start_idx + i
+                    xs, ys, zs = _step_bwd_dispatch(
+                        sys_id, xs, ys, zs, h,
+                        xm[cur_m], ym[cur_m], zm[cur_m],
+                        kxb, kyb, kzb, p_arr
+                    )
+                    if np.isnan(xs) or abs(xs) > 1e4:
+                        diverged = True
+                        break
+
+            if diverged:
+                break
+
+        if diverged or np.isnan(final_err) or final_err > 100.0:
+            err10_out[idx] = 3.0  # log10(1000)
+        else:
+            err10_out[idx] = np.log10(max(final_err, 1e-16))
+
+    return err10_out
