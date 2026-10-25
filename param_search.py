@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QDoubleSpinBox, QSpinBox, QCheckBox, QPushButton, QProgressBar,
+    QSpinBox, QCheckBox, QPushButton, QProgressBar,
     QTableView, QHeaderView, QGroupBox, QScrollArea, QMessageBox,
     QSplitter, QFileDialog,  QInputDialog, QLineEdit
 )
@@ -25,6 +25,7 @@ from fast_trs import (
     run_fast_candidate_trs, pack_system_params,
     integrate_master, run_fast_trs_window_score
 )
+from spinboxes import QDoubleSpinBox, QSpinBox
 import numpy as np
 
 def hooke_jeeves(f, x0, steps, lo, hi, shrink=0.5, min_step=1e-3, max_evals=400):

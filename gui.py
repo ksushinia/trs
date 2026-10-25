@@ -17,7 +17,7 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QDoubleSpinBox, QSpinBox, QSlider, QPushButton, QCheckBox,
+    QLabel, QSpinBox, QSlider, QPushButton, QCheckBox,
     QGroupBox, QSplitter, QComboBox, QTabWidget, QScrollArea, QProgressBar,
     QMenu, QMessageBox, QAbstractSpinBox
 )
@@ -30,6 +30,7 @@ from trs_solver import solve_trs
 from phase_portrait import compute_error_mapped_attractor
 from presets import PresetManagerWidget
 from param_search import ParamSearchDialog
+from spinboxes import QDoubleSpinBox, QSpinBox
 
 # Директория для автоматического экспорта графиков
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
