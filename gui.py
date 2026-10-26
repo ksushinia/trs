@@ -641,6 +641,62 @@ class TRSApp(QMainWindow):
             "Сходимость по итерациям": (self.fig_conv, "rms_convergence")
         }
 
+    def on_generate_random_slave(self):
+        """Генерирует 1 случайную точку Slave в окрестности выбранной базы."""
+        sys_name = self.combo_system.currentText()
+        if sys_name not in SYSTEMS_CONFIG: return
+        params = SYSTEMS_CONFIG[sys_name]["params"]
+        m0 = (self.sp_mx.value(), self.sp_my.value(), self.sp_mz.value())
+        h = self.sp_h.value()
+        t_start = self.sp_tstart.value()
+        radius = self.sp_slave_gen_radius.value()
+        mode = self.combo_slave_gen_mode.currentData()
+
+        (sx, sy, sz), (bx, by, bz) = sample_slave_initial_condition(
+            mode=mode, sys_name=sys_name, params_dict=params,
+            master_0=m0, h=h, t_start=t_start, radius=radius
+        )
+
+        self._block_signals = True
+        self.sp_sx.setValue(sx);
+        self.sp_sy.setValue(sy);
+        self.sp_sz.setValue(sz)
+        self._block_signals = False
+
+        m_name = "Master(t_start)" if mode == "near_master" else "Центр"
+        self.lbl_slave_gen_info.setText(
+            f"База ({m_name}): ({bx:.4f}, {by:.4f}, {bz:.4f})<br>"
+            f"<b>Slave:</b> ({sx:.5f}, {sy:.5f}, {sz:.5f})"
+        )
+        self.on_param_changed()
+
+    def on_set_exact_base_slave(self):
+        """Устанавливает Slave строго в координаты базы (радиус = 0)."""
+        sys_name = self.combo_system.currentText()
+        if sys_name not in SYSTEMS_CONFIG: return
+        params = SYSTEMS_CONFIG[sys_name]["params"]
+        m0 = (self.sp_mx.value(), self.sp_my.value(), self.sp_mz.value())
+        h = self.sp_h.value()
+        t_start = self.sp_tstart.value()
+        mode = self.combo_slave_gen_mode.currentData()
+
+        (sx, sy, sz), (bx, by, bz) = sample_slave_initial_condition(
+            mode=mode, sys_name=sys_name, params_dict=params,
+            master_0=m0, h=h, t_start=t_start, radius=0.0
+        )
+
+        self._block_signals = True
+        self.sp_sx.setValue(sx);
+        self.sp_sy.setValue(sy);
+        self.sp_sz.setValue(sz)
+        self._block_signals = False
+
+        m_name = "Master(t_start)" if mode == "near_master" else "Центр"
+        self.lbl_slave_gen_info.setText(
+            f"Точная база ({m_name}): ({bx:.5f}, {by:.5f}, {bz:.5f})"
+        )
+        self.on_param_changed()
+
     def save_all_figures(self):
         """Сохраняет все 4 графика в отдельную подпапку с датой и временем."""
         os.makedirs(EXPORTS_DIR, exist_ok=True)

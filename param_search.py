@@ -9,13 +9,14 @@ import itertools
 import os
 import csv
 import threading
+import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QSpinBox, QCheckBox, QPushButton, QProgressBar,
     QTableView, QHeaderView, QGroupBox, QScrollArea, QMessageBox,
-    QSplitter, QFileDialog,  QInputDialog, QLineEdit
+    QSplitter, QFileDialog,  QInputDialog, QLineEdit, QComboBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QAbstractTableModel, QModelIndex, QSortFilterProxyModel
 
@@ -26,7 +27,9 @@ from fast_trs import (
     integrate_master, run_fast_trs_window_score
 )
 from spinboxes import QDoubleSpinBox, QSpinBox
-import numpy as np
+from start_point_generator import (
+    generate_offsets, avoid_zero_coords, get_attractor_center_from_trajectory
+)
 
 def hooke_jeeves(f, x0, steps, lo, hi, shrink=0.5, min_step=1e-3, max_evals=400):
     lo = np.asarray(lo, float); hi = np.asarray(hi, float)
@@ -339,12 +342,22 @@ class CachedGridWorker(ParamSearchWorker):
     def run(self):
         self._setup()
         g = self.param_grid
-        link_k, near = g["link_k"][0], g["near_master"][0]
+        link_k = g["link_k"][0]
+        slave_mode = g["slave_mode"]
+        slave_radius = g["slave_radius"]
+        slave_count = g["slave_count"]
+        slave_dist = g["slave_dist"]
         kb_lists = [[None]] * 3 if link_k else [g["kxb"], g["kyb"], g["kzb"]]
 
-        n_rest = 1
-        for lst in (g["sx"], g["sy"], g["sz"], g["t_start"], g["dt"],
-                    g["kxf"], g["kyf"], g["kzf"], *kb_lists):
+        if slave_mode != "manual":
+            n_slave = slave_count
+            offsets = generate_offsets(slave_count, slave_radius, dist_type=slave_dist)
+        else:
+            n_slave = len(g["sx"]) * len(g["sy"]) * len(g["sz"])
+            offsets = None
+
+        n_rest = n_slave
+        for lst in (g["t_start"], g["dt"], g["kxf"], g["kyf"], g["kzf"], *kb_lists):
             n_rest *= len(lst)
         n_master = len(g["mx"]) * len(g["my"]) * len(g["mz"]) * len(g["h"])
         total = n_master * n_rest
@@ -358,26 +371,53 @@ class CachedGridWorker(ParamSearchWorker):
                 n_total = int(round((max(g["t_start"]) + max(g["dt"])) / h)) + 1
                 xm, ym, zm, valid = integrate_master(self.sys_id, self.p_arr, mx, my, mz, h, n_total)
 
-                def ev(v, xm=xm, ym=ym, zm=zm, valid=valid, h=h, m0=(mx, my, mz)):
-                    if self._is_cancelled: return None
-                    sx, sy, sz, ts, dt0, kxf, kyf, kzf, kxb, kyb, kzb = v
-                    if kxb is None: kxb, kyb, kzb = kxf, kyf, kzf
-                    i0 = int(round(ts / h)); n = max(1, int(round(dt0 / h)))
-                    if i0 + n > valid: return None
-                    s0 = ((float(round(xm[i0] + 0.01, 5)),
-                           float(round(ym[i0] + 0.01, 5)),
-                           float(round(zm[i0] + 0.01, 5)))
-                          if near else (float(sx), float(sy), float(sz)))
-                    ok, it, sc = run_fast_trs_window_score(
-                        self.sys_id, self.p_arr, xm, ym, zm, i0, n, *s0, h,
-                        self.max_iters, kxf, kyf, kzf, kxb, kyb, kzb, self.target_err)
-                    if not ok: return None
-                    return {"m0": m0, "s0": s0, "k_fwd": (kxf, kyf, kzf), "k_bwd": (kxb, kyb, kzb),
-                            "h": h, "t_start": ts, "dt": round(n * h, 5),
-                            "iters": it, "error": 10 ** sc, "checked": True}
+                if slave_mode == "center":
+                    xc, yc, zc = get_attractor_center_from_trajectory(xm, ym, zm, valid)
+                else:
+                    xc, yc, zc = 0.0, 0.0, 0.0
 
-                combos = itertools.product(g["sx"], g["sy"], g["sz"], g["t_start"], g["dt"],
-                                           g["kxf"], g["kyf"], g["kzf"], *kb_lists)
+                if slave_mode != "manual":
+                    combos = itertools.product(range(slave_count), g["t_start"], g["dt"],
+                                               g["kxf"], g["kyf"], g["kzf"], *kb_lists)
+
+                    def ev(v, xm=xm, ym=ym, zm=zm, valid=valid, h=h, m0=(mx, my, mz)):
+                        if self._is_cancelled: return None
+                        off_idx, ts, dt0, kxf, kyf, kzf, kxb, kyb, kzb = v
+                        if kxb is None: kxb, kyb, kzb = kxf, kyf, kzf
+                        i0 = int(round(ts / h));
+                        n = max(1, int(round(dt0 / h)))
+                        if i0 + n > valid: return None
+                        off = offsets[off_idx]
+                        if slave_mode == "near_master":
+                            s0 = avoid_zero_coords(xm[i0] + off[0], ym[i0] + off[1], zm[i0] + off[2])
+                        else:  # "center"
+                            s0 = avoid_zero_coords(xc + off[0], yc + off[1], zc + off[2])
+                        ok, it, sc = run_fast_trs_window_score(
+                            self.sys_id, self.p_arr, xm, ym, zm, i0, n, s0[0], s0[1], s0[2], h,
+                            self.max_iters, kxf, kyf, kzf, kxb, kyb, kzb, self.target_err)
+                        if not ok: return None
+                        return {"m0": m0, "s0": s0, "k_fwd": (kxf, kyf, kzf), "k_bwd": (kxb, kyb, kzb),
+                                "h": h, "t_start": ts, "dt": round(n * h, 5),
+                                "iters": it, "error": 10 ** sc, "checked": True}
+                else:
+                    combos = itertools.product(g["sx"], g["sy"], g["sz"], g["t_start"], g["dt"],
+                                               g["kxf"], g["kyf"], g["kzf"], *kb_lists)
+
+                    def ev(v, xm=xm, ym=ym, zm=zm, valid=valid, h=h, m0=(mx, my, mz)):
+                        if self._is_cancelled: return None
+                        sx, sy, sz, ts, dt0, kxf, kyf, kzf, kxb, kyb, kzb = v
+                        if kxb is None: kxb, kyb, kzb = kxf, kyf, kzf
+                        i0 = int(round(ts / h));
+                        n = max(1, int(round(dt0 / h)))
+                        if i0 + n > valid: return None
+                        s0 = avoid_zero_coords(sx, sy, sz)
+                        ok, it, sc = run_fast_trs_window_score(
+                            self.sys_id, self.p_arr, xm, ym, zm, i0, n, s0[0], s0[1], s0[2], h,
+                            self.max_iters, kxf, kyf, kzf, kxb, kyb, kzb, self.target_err)
+                        if not ok: return None
+                        return {"m0": m0, "s0": s0, "k_fwd": (kxf, kyf, kzf), "k_bwd": (kxb, kyb, kzb),
+                                "h": h, "t_start": ts, "dt": round(n * h, 5),
+                                "iters": it, "error": 10 ** sc, "checked": True}
                 while not self._is_cancelled:
                     self._pause_event.wait()
                     chunk = list(itertools.islice(combos, 500))
@@ -532,10 +572,43 @@ class ParamSearchDialog(QDialog):
 
         grp_init = QGroupBox("Начальные условия (Master и Slave)")
         v_init = QVBoxLayout(grp_init)
-        self.chk_near_master = QCheckBox("Старт Slave в окрестности Master (Master + 0.01)")
-        self.chk_near_master.setChecked(True)
-        self.chk_near_master.toggled.connect(self.on_near_master_toggled)
-        v_init.addWidget(self.chk_near_master)
+
+        h_smode = QHBoxLayout()
+        h_smode.addWidget(QLabel("<b>Режим Slave:</b>"))
+        self.combo_slave_mode = QComboBox()
+        self.combo_slave_mode.addItem("В окрестности Master (t_start)", "near_master")
+        self.combo_slave_mode.addItem("В окрестности центра аттрактора", "center")
+        self.combo_slave_mode.addItem("Ручная сетка Slave (X, Y, Z)", "manual")
+        self.combo_slave_mode.currentIndexChanged.connect(self.on_slave_mode_changed)
+        h_smode.addWidget(self.combo_slave_mode)
+        v_init.addLayout(h_smode)
+
+        self.box_slave_opts = QWidget()
+        grid_sopts = QGridLayout(self.box_slave_opts)
+        grid_sopts.setContentsMargins(0, 2, 0, 2)
+
+        grid_sopts.addWidget(QLabel("Радиус (R):"), 0, 0)
+        self.sp_slave_radius = QDoubleSpinBox()
+        self.sp_slave_radius.setRange(0.0001, 100.0);
+        self.sp_slave_radius.setDecimals(4)
+        self.sp_slave_radius.setSingleStep(0.01);
+        self.sp_slave_radius.setValue(0.01)
+        grid_sopts.addWidget(self.sp_slave_radius, 0, 1)
+
+        grid_sopts.addWidget(QLabel("Точек Slave:"), 0, 2)
+        self.sp_slave_count = QSpinBox()
+        self.sp_slave_count.setRange(1, 5000);
+        self.sp_slave_count.setValue(100);
+        self.sp_slave_count.setSingleStep(10)
+        grid_sopts.addWidget(self.sp_slave_count, 0, 3)
+
+        grid_sopts.addWidget(QLabel("Распределение:"), 1, 0)
+        self.combo_slave_dist = QComboBox()
+        self.combo_slave_dist.addItem("Равномерное", "uniform")
+        self.combo_slave_dist.addItem("Нормальное", "normal")
+        grid_sopts.addWidget(self.combo_slave_dist, 1, 1, 1, 3)
+
+        v_init.addWidget(self.box_slave_opts)
 
         self.r_mx = ParamRangeRow("Master X:", 0.1, step=0.5)
         self.r_my = ParamRangeRow("Master Y:", 0.1, step=0.5)
@@ -545,6 +618,8 @@ class ParamSearchDialog(QDialog):
         self.r_sz = ParamRangeRow("Slave Z:", 0.0, step=1.0)
         for r in (self.r_mx, self.r_my, self.r_mz, self.r_sx, self.r_sy, self.r_sz):
             v_init.addWidget(r)
+
+        self.on_slave_mode_changed()
         left_layout.addWidget(grp_init)
 
         grp_k = QGroupBox("Коэффициенты связи (K)")
@@ -655,8 +730,9 @@ class ParamSearchDialog(QDialog):
 
         self.table_view = QTableView()
         self.table_view.setModel(self.proxy_model)
-        self.table_view.setSortingEnabled(True)
-        self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table_view.setSortingEnabled(False)  # Включаем только после перебора
+        # Фиксированные / интерактивные размеры — никакого замера 100 000 строк!
+        self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table_view.horizontalHeader().setStretchLastSection(True)
         self.table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         right_layout.addWidget(self.table_view)
@@ -786,10 +862,6 @@ class ParamSearchDialog(QDialog):
             source_indices.append(source_idx.row())
         self.table_model.set_all_checked(source_indices, state)
 
-    def on_near_master_toggled(self, checked):
-        for r in (self.r_sx, self.r_sy, self.r_sz):
-            r.setEnabled(not checked)
-
     def on_link_k_toggled(self, checked):
         self.r_kxb.setVisible(not checked)
         self.r_kyb.setVisible(not checked)
@@ -811,13 +883,27 @@ class ParamSearchDialog(QDialog):
         self.r_dt.sp_val.setValue(tm.get("dt", 1.0))
         self.r_h.sp_val.setValue(sim.get("h", 0.01))
 
+    def on_slave_mode_changed(self):
+        mode = self.combo_slave_mode.currentData()
+        is_manual = (mode == "manual")
+        self.box_slave_opts.setVisible(not is_manual)
+        for r in (self.r_sx, self.r_sy, self.r_sz):
+            r.setVisible(is_manual)
+
     def build_grid_dict(self):
+        slave_mode = self.combo_slave_mode.currentData()
         grid = {
             "mx": self.r_mx.get_values(), "my": self.r_my.get_values(), "mz": self.r_mz.get_values(),
-            "sx": self.r_sx.get_values(), "sy": self.r_sy.get_values(), "sz": self.r_sz.get_values(),
             "kxf": self.r_kxf.get_values(), "kyf": self.r_kyf.get_values(), "kzf": self.r_kzf.get_values(),
             "t_start": self.r_tstart.get_values(), "dt": self.r_dt.get_values(), "h": self.r_h.get_values(),
-            "link_k": [self.chk_link_k.isChecked()], "near_master": [self.chk_near_master.isChecked()]
+            "link_k": [self.chk_link_k.isChecked()],
+            "slave_mode": slave_mode,
+            "slave_radius": self.sp_slave_radius.value(),
+            "slave_count": self.sp_slave_count.value() if slave_mode != "manual" else 1,
+            "slave_dist": self.combo_slave_dist.currentData(),
+            "sx": self.r_sx.get_values() if slave_mode == "manual" else [0.0],
+            "sy": self.r_sy.get_values() if slave_mode == "manual" else [0.0],
+            "sz": self.r_sz.get_values() if slave_mode == "manual" else [0.0],
         }
         if not self.chk_link_k.isChecked():
             grid["kxb"] = self.r_kxb.get_values()
@@ -826,6 +912,7 @@ class ParamSearchDialog(QDialog):
         return grid
 
     def start_search(self):
+        self.table_view.setSortingEnabled(False)  # Отключаем пересортировку во время поиска
         grid = self.build_grid_dict()
         self.search_t_max = max(grid["t_start"])
         self.table_model.clear()
@@ -915,6 +1002,7 @@ class ParamSearchDialog(QDialog):
     def on_worker_finished(self, found_count):
         if self.sender() is not self.worker:
             return
+        self.table_view.setSortingEnabled(True)   # Включаем, когда всё готово
         self.btn_start.setEnabled(True)
         self.btn_pause.setEnabled(False)
         self.btn_stop.setEnabled(False)
