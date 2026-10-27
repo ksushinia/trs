@@ -5,6 +5,7 @@ gui.py
 """
 import os
 import sys
+import csv
 from datetime import datetime
 import numpy as np
 import matplotlib
@@ -31,11 +32,12 @@ from phase_portrait import compute_error_mapped_attractor
 from presets import PresetManagerWidget
 from param_search import ParamSearchDialog
 from spinboxes import QDoubleSpinBox, QSpinBox
+from start_point_generator import sample_slave_initial_condition
 
 # Директория для автоматического экспорта графиков
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-EXPORTS_DIR = os.path.join(BASE_DIR, "exports")
-
+EXPORTS_PLOTS_DIR = os.path.join(BASE_DIR, "exports_plots")
+EXPORTS_CSV_DIR = os.path.join(BASE_DIR, "exports_csv")
 
 def get_matlab_custom_cmap():
     """Палитра из статьи: 450 цветов Turbo + 100 цветов для разлета (0..2)."""
@@ -699,9 +701,9 @@ class TRSApp(QMainWindow):
 
     def save_all_figures(self):
         """Сохраняет все 4 графика в отдельную подпапку с датой и временем."""
-        os.makedirs(EXPORTS_DIR, exist_ok=True)
+        os.makedirs(EXPORTS_PLOTS_DIR, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        run_folder = os.path.join(EXPORTS_DIR, f"run_{timestamp}")
+        run_folder = os.path.join(EXPORTS_PLOTS_DIR, f"run_{timestamp}")
         os.makedirs(run_folder, exist_ok=True)
 
         plots = self.get_plot_mapping()
@@ -712,12 +714,12 @@ class TRSApp(QMainWindow):
         self.lbl_status.setText(f"Все 4 графика сохранены в run_{timestamp}")
         QMessageBox.information(
             self, "Успех",
-            f"Все 4 графика сохранены в:\nexports/run_{timestamp}\n(DPI = 300, без перезаписи)"
+            f"Все 4 графика сохранены в:\nexports_plots/run_{timestamp}\n(DPI = 300, без перезаписи)"
         )
 
     def save_selected_figure(self):
         """Сохраняет конкретный выбранный график с меткой времени."""
-        os.makedirs(EXPORTS_DIR, exist_ok=True)
+        os.makedirs(EXPORTS_PLOTS_DIR, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         title = self.combo_export_fig.currentText()
         plots = self.get_plot_mapping()
@@ -725,19 +727,30 @@ class TRSApp(QMainWindow):
         if title in plots:
             fig, filename = plots[title]
             file_name = f"{filename}_{timestamp}.png"
-            full_path = os.path.join(EXPORTS_DIR, file_name)
+            full_path = os.path.join(EXPORTS_PLOTS_DIR, file_name)
             fig.savefig(full_path, dpi=300, bbox_inches="tight")
 
-            self.lbl_status.setText(f"График сохранен: exports/{file_name}")
+            self.lbl_status.setText(f"График сохранен: exports_plots/{file_name}")
             QMessageBox.information(
                 self, "Успех",
-                f"График «{title}» сохранен:\nexports/{file_name}\n(DPI = 300)"
+                f"График «{title}» сохранен:\nexports_plots/{file_name}\n(DPI = 300)"
             )
 
     def open_exports_folder(self):
         """Открывает папку с сохраненными графиками в Проводнике."""
-        os.makedirs(EXPORTS_DIR, exist_ok=True)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(EXPORTS_DIR))
+        os.makedirs(EXPORTS_PLOTS_DIR, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(EXPORTS_PLOTS_DIR))
+
+    def _quick_save_figure(self, fig, plot_title):
+        os.makedirs(EXPORTS_PLOTS_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        plots = self.get_plot_mapping()
+        filename = plots.get(plot_title, (None, "plot"))[1]
+        file_name = f"{filename}_{timestamp}.png"
+        full_path = os.path.join(EXPORTS_PLOTS_DIR, file_name)
+        fig.savefig(full_path, dpi=300, bbox_inches="tight")
+        self.lbl_status.setText(f"График сохранен: exports_plots/{file_name}")
+        QMessageBox.information(self, "Успех", f"График «{plot_title}» сохранен в:\nexports_plots/{file_name}")
 
     def setup_canvas_context_menu(self, canvas, fig, plot_title):
         """Включает контекстное меню по правому клику мыши на холст."""
@@ -747,22 +760,59 @@ class TRSApp(QMainWindow):
         )
 
     def show_canvas_context_menu(self, canvas, fig, plot_title, pos):
-        """Меню ПКМ: быстрый экспорт этого графика."""
+        """Меню ПКМ: быстрый экспорт графика или данных."""
         menu = QMenu(self)
-        action_save = menu.addAction(f"Сохранить этот график")
-        action_save.triggered.connect(lambda: self._quick_save_figure(fig, plot_title))
+
+        action_save_img = menu.addAction("Сохранить этот график (PNG)")
+        action_save_img.triggered.connect(lambda: self._quick_save_figure(fig, plot_title))
+
+        # Пункты экспорта в CSV в зависимости от выбранного графика
+        if plot_title == "3D Фазовый портрет":
+            action_save_csv = menu.addAction("Экспортировать точки в CSV")
+            action_save_csv.triggered.connect(self.export_portrait_csv)
+        elif plot_title == "Сходимость по итерациям":
+            action_save_csv = menu.addAction("Экспортировать сходимость в CSV")
+            action_save_csv.triggered.connect(self.export_iter_rms_csv)
+        elif plot_title == "Зигзаг сходимости во времени":
+            action_save_csv = menu.addAction("Экспортировать зигзаг в CSV")
+            action_save_csv.triggered.connect(self.export_zigzag_csv)
+
         menu.exec(canvas.mapToGlobal(pos))
 
-    def _quick_save_figure(self, fig, plot_title):
-        os.makedirs(EXPORTS_DIR, exist_ok=True)
+    def export_portrait_csv(self):
+        """Экспорт точек 3D фазового портрета (x, y, z, error) в CSV-файл."""
+        if self.portrait_data is None:
+            QMessageBox.warning(
+                self, "Внимание",
+                "Фазовый портрет еще не построен!\nСначала нажмите «Построить портрет» во вкладке «3D Аттрактор»."
+            )
+            return
+
+        os.makedirs(EXPORTS_CSV_DIR, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        plots = self.get_plot_mapping()
-        filename = plots.get(plot_title, (None, "plot"))[1]
-        file_name = f"{filename}_{timestamp}.png"
-        full_path = os.path.join(EXPORTS_DIR, file_name)
-        fig.savefig(full_path, dpi=300, bbox_inches="tight")
-        self.lbl_status.setText(f"График сохранен: exports/{file_name}")
-        QMessageBox.information(self, "Успех", f"График «{plot_title}» сохранен в:\nexports/{file_name}")
+        sys_name = self.combo_system.currentText().replace(" ", "_")
+        file_name = f"phase_portrait_{sys_name}_{timestamp}.csv"
+        full_path = os.path.join(EXPORTS_CSV_DIR, file_name)
+
+        xs, ys, zs, err10 = self.portrait_data
+        # Восстанавливаем реальное значение ошибки из log10
+        errors = 10.0 ** np.asarray(err10, dtype=np.float64)
+
+        try:
+            with open(full_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f, delimiter=";")
+                # Заголовок из ровно 4 столбцов
+                writer.writerow(["x", "y", "z", "error"])
+                for x, y, z, err in zip(xs, ys, zs, errors):
+                    writer.writerow([f"{x:.8e}", f"{y:.8e}", f"{z:.8e}", f"{err:.8e}"])
+
+            self.lbl_status.setText(f"Данные ФП сохранены: exports_csv/{file_name}")
+            QMessageBox.information(
+                self, "Успех",
+                f"Точки фазового портрета ({len(xs):,} шт.) успешно сохранены в:\nexports_csv/{file_name}"
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "Ошибка сохранения", f"Не удалось записать CSV: {e}")
 
     def connect_signals(self):
         for sp in (self.sp_mx, self.sp_my, self.sp_mz, self.sp_sx, self.sp_sy, self.sp_sz,
@@ -780,6 +830,63 @@ class TRSApp(QMainWindow):
 
         self.slider_tstart.valueChanged.connect(self.on_slider_tstart_moved)
         self.slider_dt.valueChanged.connect(self.on_slider_dt_moved)
+
+    def export_iter_rms_csv(self):
+        """Экспорт сходимости ошибки по итерациям (iteration; error)."""
+        if not self.iter_rms:
+            QMessageBox.warning(self, "Внимание", "Расчет еще не выполнен!\nСначала нажмите «Рассчитать TRS».")
+            return
+
+        os.makedirs(EXPORTS_CSV_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        sys_name = self.combo_system.currentText().replace(" ", "_")
+        file_name = f"convergence_rms_{sys_name}_{timestamp}.csv"
+        full_path = os.path.join(EXPORTS_CSV_DIR, file_name)
+        try:
+            with open(full_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f, delimiter=";")
+                writer.writerow(["iteration", "error"])
+                for it_idx, err in enumerate(self.iter_rms, 1):
+                    writer.writerow([it_idx, f"{err:.8e}"])
+
+            self.lbl_status.setText(f"Сходимость сохранена: exports_csv/{file_name}")
+            QMessageBox.information(
+                self, "Успех",
+                f"Сходимость по итерациям ({len(self.iter_rms):,} шт.) сохранена в:\nexports_csv/{file_name}"
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "Ошибка сохранения", f"Не удалось записать CSV: {e}")
+
+    def export_zigzag_csv(self):
+        """Полный экспорт зигзага во времени (iteration; direction; t; error)."""
+        if not self.runs_zigzag:
+            QMessageBox.warning(self, "Внимание", "Расчет еще не выполнен!\nСначала нажмите «Рассчитать TRS».")
+            return
+
+        os.makedirs(EXPORTS_CSV_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        sys_name = self.combo_system.currentText().replace(" ", "_")
+        file_name = f"zigzag_{sys_name}_{timestamp}.csv"
+        full_path = os.path.join(EXPORTS_CSV_DIR, file_name)
+        total_pts = 0
+        try:
+            with open(full_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f, delimiter=";")
+                writer.writerow(["iteration", "direction", "t", "error"])
+                for it_idx, (name, r_t, r_err) in enumerate(self.runs_zigzag, 1):
+                    # name имеет вид "Iter 1: Fwd" или "Iter 2: Bwd"
+                    direction = "Fwd" if "Fwd" in name else "Bwd"
+                    for t_val, err_val in zip(r_t, r_err):
+                        writer.writerow([it_idx, direction, f"{t_val:.6f}", f"{err_val:.8e}"])
+                        total_pts += 1
+
+            self.lbl_status.setText(f"Зигзаг сохранен: exports_csv/{file_name}")
+            QMessageBox.information(
+                self, "Успех",
+                f"Зигзаг ({len(self.runs_zigzag):,} итераций, {total_pts:,} точек) сохранен в:\nexports_csv/{file_name}"
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "Ошибка сохранения", f"Не удалось записать CSV: {e}")
 
     def get_current_settings_dict(self):
         """Сохраняет полное состояние всех параметров симуляции."""

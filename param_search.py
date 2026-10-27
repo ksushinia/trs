@@ -1088,9 +1088,14 @@ class ParamSearchDialog(QDialog):
 
     def export_solutions_to_csv(self):
         if not self.table_model.results: return
+        exports_csv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "exports_csv")
+        os.makedirs(exports_csv_dir, exist_ok=True)
+
         default_filename = f"trs_solutions_{self.sys_name.replace(' ', '_')}.csv"
+        default_path = os.path.join(exports_csv_dir, default_filename)
+
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Сохранить решения", default_filename, "CSV Files (*.csv);;All Files (*)"
+            self, "Сохранить решения", default_path, "CSV Files (*.csv);;All Files (*)"
         )
         if not file_path: return
 
