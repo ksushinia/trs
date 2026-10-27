@@ -3,7 +3,7 @@ comparison/pc_simulation.py
 Движок моделирования: совместный шаг Pecora-Carroll и сравнение с TRS.
 """
 import numpy as np
-from numba import njit
+from numba import njit, prange
 from fast_trs import pack_system_params, integrate_master, run_fast_trs_slave_window
 from systems import (
     _sprott_b_fwd_core,
@@ -162,3 +162,63 @@ def run_comparison_simulation(sys_name, params, master_0, slave_0,
         "runs_zigzag": runs_zigzag,
         "iter_rms": iter_rms
     }
+
+# -------------------------------------------------------------
+# 2. БЫСТРАЯ КАРТА ОШИБОК ДЛЯ PECORA-CARROLL (Numba parallel)
+# -------------------------------------------------------------
+@njit(nogil=True, fastmath=True, parallel=True)
+def run_fast_pc_portrait_chunk(sys_id, p_arr, xm, ym, zm, start_indices, ns,
+                               kx, ky, kz, h, use_matlab_shift, sx0, sy0, sz0):
+    n_pts = len(start_indices)
+    err10_out = np.empty(n_pts, dtype=np.float64)
+    s_param = p_arr[5] if len(p_arr) > 5 else 0.5
+    h1 = s_param * h
+    h2 = (1.0 - s_param) * h
+
+    for idx in prange(n_pts):
+        start_idx = start_indices[idx]
+        if use_matlab_shift:
+            xs = xm[start_idx] + 0.01
+            ys = ym[start_idx] + 0.01
+            zs = zm[start_idx] + 0.01
+        else:
+            xs = sx0
+            ys = sy0
+            zs = sz0
+
+        diverged = False
+        for i in range(ns - 1):
+            cur_m = start_idx + i
+            if sys_id == 1:  # Dadras Momeni
+                _, _, _, xs, ys, zs = step_dadras_pc(
+                    xm[cur_m], ym[cur_m], zm[cur_m], xs, ys, zs,
+                    h1, h2, p_arr[0], p_arr[1], p_arr[2], p_arr[3], p_arr[4],
+                    kx, ky, kz
+                )
+            elif sys_id == 0:  # Sprott B
+                xs, ys, zs = _sprott_b_fwd_core(
+                    xs, ys, zs, h, xm[cur_m], ym[cur_m], zm[cur_m],
+                    kx, ky, kz, p_arr[0], p_arr[1], p_arr[2], p_arr[3], p_arr[4]
+                )
+            else:  # Lorenz
+                xs, ys, zs = _lorenz_fwd_core(
+                    xs, ys, zs, h, xm[cur_m], ym[cur_m], zm[cur_m],
+                    kx, ky, kz, p_arr[0], p_arr[1], p_arr[2], s_param
+                )
+
+            if np.isnan(xs) or abs(xs) > 1e4:
+                diverged = True
+                break
+
+        end_m = start_idx + ns - 1
+        ex = xm[end_m] - xs
+        ey = ym[end_m] - ys
+        ez = zm[end_m] - zs
+        final_err = np.sqrt((ex * ex + ey * ey + ez * ez) / 3.0)
+
+        if diverged or np.isnan(final_err) or final_err > 100.0:
+            err10_out[idx] = 3.0
+        else:
+            err10_out[idx] = np.log10(max(final_err, 1e-16))
+
+    return err10_out

@@ -33,8 +33,6 @@ from presets import PresetManagerWidget
 from param_search import ParamSearchDialog
 from spinboxes import QDoubleSpinBox, QSpinBox
 from start_point_generator import sample_slave_initial_condition
-from comparison.compare_dialog import ComparisonDialog
-
 
 # Директория для автоматического экспорта графиков
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1339,6 +1337,7 @@ class TRSApp(QMainWindow):
 
     def open_comparison_dialog(self):
         """Открывает окно сравнительного анализа TRS и Pecora-Carroll."""
+        from comparison.compare_dialog import ComparisonDialog
         settings = self.get_current_settings_dict()
         dlg = ComparisonDialog(current_settings=settings, parent=self)
         dlg.exec()
