@@ -20,7 +20,8 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QSpinBox, QSlider, QPushButton, QCheckBox,
     QGroupBox, QSplitter, QComboBox, QTabWidget, QScrollArea, QProgressBar,
-    QMenu, QMessageBox, QAbstractSpinBox
+    QMenu, QMessageBox, QAbstractSpinBox,
+    QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal, QThread, QObject, QEvent
 from PyQt6.QtGui import QDesktopServices
@@ -555,8 +556,52 @@ class TRSApp(QMainWindow):
 
         tab_3d = QWidget()
         layout_3d = QVBoxLayout(tab_3d)
-        layout_3d.setSpacing(10)
+        layout_3d.setSpacing(8)
         layout_3d.addWidget(grp_portrait)
+
+        # Блок интерактивной сетки ракурсов 3D
+        grp_angles = QGroupBox("Ракурсы камеры 3D (клик для поворота)")
+        v_ang = QVBoxLayout(grp_angles)
+        v_ang.setContentsMargins(6, 6, 6, 6)
+        v_ang.setSpacing(4)
+
+        self.table_angles = QTableWidget(8, 3)
+        self.table_angles.setHorizontalHeaderLabels(["Ракурс", "Elev (°)", "Azim (°)"])
+        self.table_angles.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table_angles.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_angles.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_angles.verticalHeader().setDefaultSectionSize(22)
+        self.table_angles.verticalHeader().setVisible(False)
+        self.table_angles.setFixedHeight(180)
+
+        # 8 предустановленных красивых ракурсов
+        preset_angles = [
+            ("Стандартный", "30", "-60"),
+            ("Плоскость XY", "90", "-90"),
+            ("Плоскость XZ", "0", "-90"),
+            ("Плоскость YZ", "0", "0"),
+            ("Перспектива 1", "25", "45"),
+            ("Перспектива 2", "40", "-135"),
+            ("Перспектива 3", "-25", "-60"),
+            ("Перспектива 4", "15", "120"),
+        ]
+        for row, (name, el, az) in enumerate(preset_angles):
+            self.table_angles.setItem(row, 0, QTableWidgetItem(name))
+            self.table_angles.setItem(row, 1, QTableWidgetItem(el))
+            self.table_angles.setItem(row, 2, QTableWidgetItem(az))
+
+        # Сигналы: поворот по клику и при ручном редактировании ячейки
+        self.table_angles.cellClicked.connect(self.apply_angle_from_table)
+        self.table_angles.cellChanged.connect(self.apply_angle_from_table)
+
+        self.btn_capture_angle = QPushButton("Запомнить текущий ракурс с мышки")
+        self.btn_capture_angle.setStyleSheet("padding: 4px; font-size: 11px;")
+        self.btn_capture_angle.clicked.connect(self.capture_current_3d_angle)
+
+        v_ang.addWidget(self.table_angles)
+        v_ang.addWidget(self.btn_capture_angle)
+        layout_3d.addWidget(grp_angles)
+
         layout_3d.addStretch()
         tabs.addTab(tab_3d, "3D Аттрактор")
 
@@ -1079,6 +1124,35 @@ class TRSApp(QMainWindow):
             if hasattr(self.ax_3d, 'dist'):
                 self.ax_3d.dist = 10  # сброс приближения камеры
             self.canvas_3d.draw_idle()
+
+    def apply_angle_from_table(self, row, col=0):
+        """Мгновенно поворачивает 3D-камеру по значениям из выбранной строки таблицы."""
+        if not hasattr(self, 'ax_3d') or self.ax_3d is None:
+            return
+        try:
+            item_el = self.table_angles.item(row, 1)
+            item_az = self.table_angles.item(row, 2)
+            if item_el and item_az:
+                elev = float(item_el.text().replace(",", "."))
+                azim = float(item_az.text().replace(",", "."))
+                self.ax_3d.view_init(elev=elev, azim=azim)
+                self.canvas_3d.draw_idle()
+        except (ValueError, TypeError):
+            pass
+
+    def capture_current_3d_angle(self):
+        """Считывает углы текущего положения камеры (после вращения мышкой) и записывает в строку."""
+        if not hasattr(self, 'ax_3d') or self.ax_3d is None:
+            return
+        row = max(0, self.table_angles.currentRow())
+        cur_elev = str(round(self.ax_3d.elev, 1))
+        cur_azim = str(round(self.ax_3d.azim, 1))
+
+        self.table_angles.blockSignals(True)
+        self.table_angles.setItem(row, 1, QTableWidgetItem(cur_elev))
+        self.table_angles.setItem(row, 2, QTableWidgetItem(cur_azim))
+        self.table_angles.blockSignals(False)
+        self.lbl_status.setText(f"Ракурс ({cur_elev}°, {cur_azim}°) записан в строку {row + 1}")
 
     def build_portrait(self):
         sys_name = self.combo_system.currentText()
