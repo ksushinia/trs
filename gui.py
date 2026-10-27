@@ -33,6 +33,8 @@ from presets import PresetManagerWidget
 from param_search import ParamSearchDialog
 from spinboxes import QDoubleSpinBox, QSpinBox
 from start_point_generator import sample_slave_initial_condition
+from comparison.compare_dialog import ComparisonDialog
+
 
 # Директория для автоматического экспорта графиков
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -414,6 +416,10 @@ class TRSApp(QMainWindow):
         self.btn_search.setStyleSheet("font-weight: bold; padding: 7px; background-color: #fef08a;")
         self.btn_search.clicked.connect(self.open_param_search_dialog)
 
+        self.btn_compare = QPushButton("Сравнение с Pecora-Carroll")
+        self.btn_compare.setStyleSheet("font-weight: bold; padding: 7px; background-color: #e0e7ff;")
+        self.btn_compare.clicked.connect(self.open_comparison_dialog)
+
         # 6. Блок экспорта графиков (без диалога выбора папки и без перезаписи)
         grp_export = QGroupBox("Экспорт графиков")
         grid_exp = QGridLayout(grp_export)
@@ -543,6 +549,7 @@ class TRSApp(QMainWindow):
         layout_trs.addWidget(self.chk_auto)
         layout_trs.addWidget(self.btn_run)
         layout_trs.addWidget(self.btn_search)
+        layout_trs.addWidget(self.btn_compare)
         layout_trs.addWidget(grp_export)
         layout_trs.addWidget(self.lbl_status)
         layout_trs.addStretch()
@@ -1329,6 +1336,12 @@ class TRSApp(QMainWindow):
         """Строит 3D фазовый портрет для выбранного в поиске решения."""
         self.apply_settings_dict(solution)
         self.build_portrait()
+
+    def open_comparison_dialog(self):
+        """Открывает окно сравнительного анализа TRS и Pecora-Carroll."""
+        settings = self.get_current_settings_dict()
+        dlg = ComparisonDialog(current_settings=settings, parent=self)
+        dlg.exec()
 
 
 if __name__ == "__main__":
