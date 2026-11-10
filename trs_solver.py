@@ -5,13 +5,12 @@ trs_solver.py
 import math
 import numpy as np
 
-def add_awgn_xyz(xm, ym, zm, snr_db, seed=None):
+def add_awgn_xyz(xm, ym, zm, noise, seed=None):
     #добавление шума
     rng = np.random.default_rng(seed)
     traj = np.column_stack([xm, ym, zm])
-    p = np.mean(traj ** 2, axis=0)
-    sigma = np.sqrt(p / 10 ** (snr_db / 10))
-    noisy = traj + sigma * rng.standard_normal(traj.shape)
+    noisy = traj + noise * rng.standard_normal(traj.shape)
+
     return noisy[:, 0].tolist(), noisy[:, 1].tolist(), noisy[:, 2].tolist()
 
 def solve_trs(step_forward, step_backward, params, master_0, slave_0, h,
@@ -46,7 +45,7 @@ def solve_trs(step_forward, step_backward, params, master_0, slave_0, h,
 
     if noise and noise.get("enabled"):# проверка и добавление шума на сигнал
         xo_arr, yo_arr, zo_arr = add_awgn_xyz(
-            xm_arr, ym_arr, zm_arr, noise["snr_db"], noise.get("seed")
+            xm_arr, ym_arr, zm_arr, noise["noise"], noise.get("seed")
         )
     else:
         xo_arr, yo_arr, zo_arr = xm_arr, ym_arr, zm_arr

@@ -6,11 +6,11 @@ import math
 import numpy as np
 from fast_trs import pack_system_params, integrate_master, run_fast_portrait_chunk
 
-def add_awgn_arrays(x, y, z, snr_db, seed=None):
+def add_awgn_arrays(x, y, z, noise, seed=None):
     rng = np.random.default_rng(seed)
     traj = np.column_stack([x, y, z])
-    sigma = np.sqrt(np.mean(traj ** 2, axis=0) / 10 ** (snr_db / 10))
-    noisy = traj + sigma * rng.standard_normal(traj.shape)
+    noisy = traj + noise * rng.standard_normal(traj.shape)
+
     return (np.ascontiguousarray(noisy[:, 0]),
             np.ascontiguousarray(noisy[:, 1]),
             np.ascontiguousarray(noisy[:, 2]))
@@ -94,7 +94,7 @@ def compute_error_mapped_attractor(step_forward, step_backward, params,
     zm = zm_all[TT_iter:valid]
 
     if noise and noise.get("enabled"):
-        xo, yo, zo = add_awgn_arrays(xm, ym, zm, noise["snr_db"], noise.get("seed"))
+        xo, yo, zo = add_awgn_arrays(xm, ym, zm, noise["noise"], noise.get("seed"))
     else:
         xo, yo, zo = xm, ym, zm
 
