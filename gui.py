@@ -411,13 +411,13 @@ class TRSApp(QMainWindow):
         self.chk_noise = QCheckBox("Включить шум")
         grid_noise.addWidget(self.chk_noise, 0, 0, 1, 2)
 
-        grid_noise.addWidget(QLabel("SNR, дБ:"), 1, 0)
-        self.sp_snr = QDoubleSpinBox()
-        self.sp_snr.setRange(-20.0, 300.0)
-        self.sp_snr.setDecimals(1)
-        self.sp_snr.setSingleStep(1.0)
-        self.sp_snr.setValue(40.0)
-        grid_noise.addWidget(self.sp_snr, 1, 1)
+        grid_noise.addWidget(QLabel("СКО шума:"), 1, 0)
+        self.noise_input = QDoubleSpinBox()
+        self.noise_input.setRange(0.0, 1.0)
+        self.noise_input.setDecimals(13)
+        self.noise_input.setSingleStep(0.001)
+        self.noise_input.setValue(0.001)
+        grid_noise.addWidget(self.noise_input, 1, 1)
 
         self.chk_noise.toggled.connect(self._update_noise_enabled)
         self._update_noise_enabled()
@@ -746,17 +746,17 @@ class TRSApp(QMainWindow):
         self.slider_tstart.valueChanged.connect(self.on_slider_tstart_moved)
         self.slider_dt.valueChanged.connect(self.on_slider_dt_moved)
 
-        self.sp_snr.valueChanged.connect(self.on_param_changed)
+        self.noise_input.valueChanged.connect(self.on_param_changed)
         self.chk_noise.stateChanged.connect(self.on_param_changed)
 
     #шум
     def _update_noise_enabled(self):
-        self.sp_snr.setEnabled(self.chk_noise.isChecked())
+        self.noise_input.setEnabled(self.chk_noise.isChecked())
 
     def get_noise_dict(self):
         return {
             "enabled": self.chk_noise.isChecked(),
-            "snr_db": self.sp_snr.value(),
+            "noise": self.noise_input.value(),
             "seed": NOISE_SEED,
         }
 
@@ -766,7 +766,7 @@ class TRSApp(QMainWindow):
             "system": self.combo_system.currentText(),
             "master_0": [self.sp_mx.value(), self.sp_my.value(), self.sp_mz.value()],
             "slave_0": [self.sp_sx.value(), self.sp_sy.value(), self.sp_sz.value()],
-            "noise": {"enabled": self.chk_noise.isChecked(), "snr_db": self.sp_snr.value()},            "K": [self.sp_kx_fwd.value(), self.sp_ky_fwd.value(), self.sp_kz_fwd.value()],
+            "noise": {"enabled": self.chk_noise.isChecked(), "noise": self.noise_input.value()},            "K": [self.sp_kx_fwd.value(), self.sp_ky_fwd.value(), self.sp_kz_fwd.value()],
             "K_fwd": [self.sp_kx_fwd.value(), self.sp_ky_fwd.value(), self.sp_kz_fwd.value()],
             "K_bwd": [self.sp_kx_bwd.value(), self.sp_ky_bwd.value(), self.sp_kz_bwd.value()],
             "time": {
@@ -835,7 +835,7 @@ class TRSApp(QMainWindow):
         #Шум
         nz = p.get("noise", {})
         self.chk_noise.setChecked(nz.get("enabled", False))
-        self.sp_snr.setValue(nz.get("snr_db", 40.0))
+        self.noise_input.setValue(nz.get("noise", 40.0))
 
         self._block_signals = False
 
