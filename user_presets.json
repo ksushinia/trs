@@ -653,9 +653,52 @@
             "iterations": 1000
         },
         "portrait": {
-            "decimator": 10,
+            "decimator": 1,
             "t_transient": 50.0,
             "t_attractor": 250.0,
+            "matlab_shift": true
+        }
+    },
+    "Dadras Momeni (Kyf=-19.5, Kyb=21.0, dt=0.30) BEST 2": {
+        "system": "Dadras Momeni",
+        "master_0": [
+            0.1,
+            0.1,
+            0.1
+        ],
+        "slave_0": [
+            8.33206,
+            4.19032,
+            -0.42684
+        ],
+        "K": [
+            0.0,
+            -19.55,
+            0.0
+        ],
+        "K_fwd": [
+            0.0,
+            -19.55,
+            0.0
+        ],
+        "K_bwd": [
+            0.0,
+            20.38,
+            0.0
+        ],
+        "time": {
+            "t_max": 320.0,
+            "t_start": 315.0,
+            "dt": 0.3
+        },
+        "sim": {
+            "h": 0.01,
+            "iterations": 1500
+        },
+        "portrait": {
+            "decimator": 1,
+            "t_transient": 40.0,
+            "t_attractor": 140.0,
             "matlab_shift": true
         }
     }
