@@ -37,6 +37,10 @@ from start_point_generator import sample_slave_initial_condition
 
 # Директория для автоматического экспорта графиков
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+EXPORTS_DIR = os.path.join(BASE_DIR, "exports")
+
+NOISE_SEED = 42
+
 EXPORTS_PLOTS_DIR = os.path.join(BASE_DIR, "exports_plots")
 EXPORTS_CSV_DIR = os.path.join(BASE_DIR, "exports_csv")
 
@@ -405,6 +409,24 @@ class TRSApp(QMainWindow):
         self.sp_iter.setValue(DEFAULT_SIM_CONFIG["N_iterations"])
         grid_sim.addWidget(self.sp_iter, 1, 1)
 
+        #Добавление шума
+        grp_noise = QGroupBox("Зашумление мастера (AWGN)")
+        grid_noise = QGridLayout(grp_noise)
+
+        self.chk_noise = QCheckBox("Включить шум")
+        grid_noise.addWidget(self.chk_noise, 0, 0, 1, 2)
+
+        grid_noise.addWidget(QLabel("SNR, дБ:"), 1, 0)
+        self.sp_snr = QDoubleSpinBox()
+        self.sp_snr.setRange(-20.0, 300.0)
+        self.sp_snr.setDecimals(1)
+        self.sp_snr.setSingleStep(1.0)
+        self.sp_snr.setValue(40.0)
+        grid_noise.addWidget(self.sp_snr, 1, 1)
+
+        self.chk_noise.toggled.connect(self._update_noise_enabled)
+        self._update_noise_enabled()
+
         self.chk_auto = QCheckBox("Авто-пересчет при изменениях")
         self.chk_auto.setChecked(True)
         self.btn_run = QPushButton("Рассчитать TRS")
@@ -545,6 +567,7 @@ class TRSApp(QMainWindow):
         layout_trs.addWidget(grp_k)
         layout_trs.addWidget(grp_time)
         layout_trs.addWidget(grp_sim)
+        layout_trs.addWidget(grp_noise)
         layout_trs.addWidget(self.chk_auto)
         layout_trs.addWidget(self.btn_run)
         layout_trs.addWidget(self.btn_search)
@@ -881,6 +904,19 @@ class TRSApp(QMainWindow):
         self.slider_tstart.valueChanged.connect(self.on_slider_tstart_moved)
         self.slider_dt.valueChanged.connect(self.on_slider_dt_moved)
 
+        self.sp_snr.valueChanged.connect(self.on_param_changed)
+        self.chk_noise.stateChanged.connect(self.on_param_changed)
+
+    #шум
+    def _update_noise_enabled(self):
+        self.sp_snr.setEnabled(self.chk_noise.isChecked())
+
+    def get_noise_dict(self):
+        return {
+            "enabled": self.chk_noise.isChecked(),
+            "snr_db": self.sp_snr.value(),
+            "seed": NOISE_SEED,
+        }
     def export_iter_rms_csv(self):
         """Экспорт сходимости ошибки по итерациям (iteration; error)."""
         if not self.iter_rms:
@@ -944,7 +980,7 @@ class TRSApp(QMainWindow):
             "system": self.combo_system.currentText(),
             "master_0": [self.sp_mx.value(), self.sp_my.value(), self.sp_mz.value()],
             "slave_0": [self.sp_sx.value(), self.sp_sy.value(), self.sp_sz.value()],
-            "K": [self.sp_kx_fwd.value(), self.sp_ky_fwd.value(), self.sp_kz_fwd.value()],
+            "noise": {"enabled": self.chk_noise.isChecked(), "snr_db": self.sp_snr.value()},            "K": [self.sp_kx_fwd.value(), self.sp_ky_fwd.value(), self.sp_kz_fwd.value()],
             "K_fwd": [self.sp_kx_fwd.value(), self.sp_ky_fwd.value(), self.sp_kz_fwd.value()],
             "K_bwd": [self.sp_kx_bwd.value(), self.sp_ky_bwd.value(), self.sp_kz_bwd.value()],
             "time": {
@@ -1009,6 +1045,11 @@ class TRSApp(QMainWindow):
         self.sp_t_trans.setValue(port.get("t_transient", 40.0))
         self.sp_t_attr.setValue(port.get("t_attractor", 140.0))
         self.chk_matlab_shift.setChecked(port.get("matlab_shift", True))
+
+        #Шум
+        nz = p.get("noise", {})
+        self.chk_noise.setChecked(nz.get("enabled", False))
+        self.sp_snr.setValue(nz.get("snr_db", 40.0))
 
         self._block_signals = False
 
@@ -1185,7 +1226,8 @@ class TRSApp(QMainWindow):
             t_total=self.sp_t_attr.value(),
             window_dt=self.sp_dt.value(),
             N_iterations=self.sp_iter.value(),
-            decimator=self.sp_decimator.value()
+            decimator=self.sp_decimator.value(),
+            noise=self.get_noise_dict(),
         )
 
         self._portrait_thread = PortraitWorker(worker_kwargs)
@@ -1239,7 +1281,8 @@ class TRSApp(QMainWindow):
             K_z_fwd=self.sp_kz_fwd.value(),
             K_x_bwd=self.sp_kx_bwd.value(),
             K_y_bwd=self.sp_ky_bwd.value(),
-            K_z_bwd=self.sp_kz_bwd.value()
+            K_z_bwd=self.sp_kz_bwd.value(),
+            noise=self.get_noise_dict(),
         )
 
         self.redraw_all()

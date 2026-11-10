@@ -3,11 +3,21 @@ trs_solver.py
 Челночный алгоритм TRS (Time-Reversed Synchronization) с защитой от переполнения.
 """
 import math
+import numpy as np
+
+def add_awgn_xyz(xm, ym, zm, snr_db, seed=None):
+    #добавление шума
+    rng = np.random.default_rng(seed)
+    traj = np.column_stack([xm, ym, zm])
+    p = np.mean(traj ** 2, axis=0)
+    sigma = np.sqrt(p / 10 ** (snr_db / 10))
+    noisy = traj + sigma * rng.standard_normal(traj.shape)
+    return noisy[:, 0].tolist(), noisy[:, 1].tolist(), noisy[:, 2].tolist()
 
 def solve_trs(step_forward, step_backward, params, master_0, slave_0, h,
               t_start, t_end, N_iterations,
               K_x_fwd, K_y_fwd, K_z_fwd,
-              K_x_bwd, K_y_bwd, K_z_bwd):
+              K_x_bwd, K_y_bwd, K_z_bwd, noise=None):
 
     N_steps = max(1, int(round((t_end - t_start) / h)))
 
@@ -33,6 +43,13 @@ def solve_trs(step_forward, step_backward, params, master_0, slave_0, h,
         zm_arr.append(zm)
 
     t_arr = [t_start + i * h for i in range(N_steps + 1)]
+
+    if noise and noise.get("enabled"):# проверка и добавление шума на сигнал
+        xo_arr, yo_arr, zo_arr = add_awgn_xyz(
+            xm_arr, ym_arr, zm_arr, noise["snr_db"], noise.get("seed")
+        )
+    else:
+        xo_arr, yo_arr, zo_arr = xm_arr, ym_arr, zm_arr
 
     # -------------------------------------------------------------
     # 2. ЧЕЛНОЧНЫЙ TRS (SLAVE)
@@ -74,7 +91,7 @@ def solve_trs(step_forward, step_backward, params, master_0, slave_0, h,
 
                 xs, ys, zs = step_forward(
                     xs, ys, zs, h,
-                    xm=xm_arr[k], ym=ym_arr[k], zm=zm_arr[k],
+                    xm=xo_arr[k], ym=yo_arr[k], zm=zo_arr[k],
                     K_x=K_x_fwd, K_y=K_y_fwd, K_z=K_z_fwd,
                     params=params
                 )
@@ -95,7 +112,7 @@ def solve_trs(step_forward, step_backward, params, master_0, slave_0, h,
 
                 xs, ys, zs = step_backward(
                     xs, ys, zs, h,
-                    xm=xm_arr[k], ym=ym_arr[k], zm=zm_arr[k],
+                    xm=xo_arr[k], ym=yo_arr[k], zm=zo_arr[k],
                     K_x=K_x_bwd, K_y=K_y_bwd, K_z=K_z_bwd,
                     params=params
                 )

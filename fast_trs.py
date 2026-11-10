@@ -254,7 +254,8 @@ def run_fast_trs_slave_window(sys_id, p_arr,
     return (final_err <= target_err), max_iters, final_err
 
 @njit(nogil=True, fastmath=True, parallel=True)
-def run_fast_portrait_chunk(sys_id, p_arr, xm, ym, zm, start_indices, ns, nglobal,
+def run_fast_portrait_chunk(sys_id, p_arr, xm, ym, zm, xo, yo, zo,
+                            start_indices, ns, nglobal,
                             kxf, kyf, kzf, kxb, kyb, kzb, h, use_matlab_shift,
                             sx0, sy0, sz0):
     n_pts = len(start_indices)
@@ -286,7 +287,7 @@ def run_fast_portrait_chunk(sys_id, p_arr, xm, ym, zm, start_indices, ns, ngloba
 
                 xs, ys, zs = _step_fwd_dispatch(
                     sys_id, xs, ys, zs, h,
-                    xm[cur_m], ym[cur_m], zm[cur_m],
+                    xo[cur_m], yo[cur_m], zo[cur_m],
                     kxf, kyf, kzf, p_arr
                 )
                 if np.isnan(xs) or abs(xs) > 1e4:
@@ -302,7 +303,7 @@ def run_fast_portrait_chunk(sys_id, p_arr, xm, ym, zm, start_indices, ns, ngloba
                     cur_m = start_idx + i
                     xs, ys, zs = _step_bwd_dispatch(
                         sys_id, xs, ys, zs, h,
-                        xm[cur_m], ym[cur_m], zm[cur_m],
+                        xo[cur_m], yo[cur_m], zo[cur_m],
                         kxb, kyb, kzb, p_arr
                     )
                     if np.isnan(xs) or abs(xs) > 1e4:

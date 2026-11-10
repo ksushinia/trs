@@ -6,6 +6,15 @@ import math
 import numpy as np
 from fast_trs import pack_system_params, integrate_master, run_fast_portrait_chunk
 
+def add_awgn_arrays(x, y, z, snr_db, seed=None):
+    rng = np.random.default_rng(seed)
+    traj = np.column_stack([x, y, z])
+    sigma = np.sqrt(np.mean(traj ** 2, axis=0) / 10 ** (snr_db / 10))
+    noisy = traj + sigma * rng.standard_normal(traj.shape)
+    return (np.ascontiguousarray(noisy[:, 0]),
+            np.ascontiguousarray(noisy[:, 1]),
+            np.ascontiguousarray(noisy[:, 2]))
+
 def run_trs_window(y0, h, ym_window, ns, nglobal,
                    K_x_fwd, K_y_fwd, K_z_fwd,
                    K_x_bwd, K_y_bwd, K_z_bwd,
@@ -67,7 +76,7 @@ def compute_error_mapped_attractor(step_forward, step_backward, params,
                                    window_dt=1.0, N_iterations=50, decimator=1,
                                    use_matlab_shift=True,
                                    progress_callback=None,
-                                   sys_name="Dadras Momeni"):
+                                   sys_name="Dadras Momeni", noise=None):
     TT_iter = int(round(t_transient / h))
     total_steps = int(round(t_total / h))
     ns = max(2, int(round(window_dt / h)))
@@ -83,6 +92,11 @@ def compute_error_mapped_attractor(step_forward, step_backward, params,
     xm = xm_all[TT_iter:valid]
     ym = ym_all[TT_iter:valid]
     zm = zm_all[TT_iter:valid]
+
+    if noise and noise.get("enabled"):
+        xo, yo, zo = add_awgn_arrays(xm, ym, zm, noise["snr_db"], noise.get("seed"))
+    else:
+        xo, yo, zo = xm, ym, zm
 
     N = len(xm) - ns
     if N <= 0:
@@ -103,7 +117,7 @@ def compute_error_mapped_attractor(step_forward, step_backward, params,
     for i in range(0, num_evals, chunk_size):
         chunk_idx = start_indices[i : i + chunk_size]
         err_chunk = run_fast_portrait_chunk(
-            sys_id, p_arr, xm, ym, zm, chunk_idx, ns, N_iterations,
+            sys_id, p_arr, xm, ym, zm, xo, yo, zo, chunk_idx, ns, N_iterations,
             K_x_fwd, K_y_fwd, K_z_fwd, K_x_bwd, K_y_bwd, K_z_bwd,
             h, use_matlab_shift, slave_0[0], slave_0[1], slave_0[2]
         )
