@@ -5,6 +5,7 @@ phase_portrait.py
 import math
 import numpy as np
 from fast_trs import pack_system_params, integrate_master, run_fast_portrait_chunk
+from trs_solver import make_sparse_mask
 
 def add_awgn_arrays(x, y, z, noise, seed=None):
     rng = np.random.default_rng(seed)
@@ -76,10 +77,13 @@ def compute_error_mapped_attractor(step_forward, step_backward, params,
                                    window_dt=1.0, N_iterations=50, decimator=1,
                                    use_matlab_shift=True,
                                    progress_callback=None,
-                                   sys_name="Dadras Momeni", noise=None):
+                                   sys_name="Dadras Momeni", noise=None, sparse = None):
     TT_iter = int(round(t_transient / h))
     total_steps = int(round(t_total / h))
     ns = max(2, int(round(window_dt / h)))
+
+    keep = sparse.get("keep", 1.0) if sparse else 1.0
+    mask = make_sparse_mask(ns + 1, keep=keep, seed=(sparse or {}).get("seed")).astype(np.float64)
 
     # 1. Сверхбыстрая генерация Master-траектории через Numba
     sys_id, p_arr = pack_system_params(sys_name, params)
@@ -119,7 +123,7 @@ def compute_error_mapped_attractor(step_forward, step_backward, params,
         err_chunk = run_fast_portrait_chunk(
             sys_id, p_arr, xm, ym, zm, xo, yo, zo, chunk_idx, ns, N_iterations,
             K_x_fwd, K_y_fwd, K_z_fwd, K_x_bwd, K_y_bwd, K_z_bwd,
-            h, use_matlab_shift, slave_0[0], slave_0[1], slave_0[2]
+            h, use_matlab_shift, slave_0[0], slave_0[1], slave_0[2], mask
         )
         err10_list[i : i + chunk_size] = err_chunk
         if progress_callback:

@@ -40,6 +40,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 EXPORTS_DIR = os.path.join(BASE_DIR, "exports")
 
 NOISE_SEED = 42
+SPARSE_SEED = 7
 
 EXPORTS_PLOTS_DIR = os.path.join(BASE_DIR, "exports_plots")
 EXPORTS_CSV_DIR = os.path.join(BASE_DIR, "exports_csv")
@@ -413,6 +414,7 @@ class TRSApp(QMainWindow):
         grp_noise = QGroupBox("Зашумление мастера (AWGN)")
         grid_noise = QGridLayout(grp_noise)
 
+
         self.chk_noise = QCheckBox("Включить шум")
         grid_noise.addWidget(self.chk_noise, 0, 0, 1, 2)
 
@@ -426,6 +428,17 @@ class TRSApp(QMainWindow):
 
         self.chk_noise.toggled.connect(self._update_noise_enabled)
         self._update_noise_enabled()
+
+        grp_sparse = QGroupBox("Разреживание точек в окне")
+        grid_sparse = QGridLayout(grp_sparse)
+        grid_sparse.addWidget(QLabel("Доля точек:"), 0, 0)
+        self.sparse_input = QDoubleSpinBox()
+        self.sparse_input.setRange(0.0, 1.0)
+        self.sparse_input.setDecimals(3)
+        self.sparse_input.setSingleStep(0.05)
+        self.sparse_input.setValue(1.0)
+        self.sparse_input.setToolTip("Доля точек окна, в которых слейв получает мастера (1 = все точки)")
+        grid_sparse.addWidget(self.sparse_input, 0, 1)
 
         self.chk_auto = QCheckBox("Авто-пересчет при изменениях")
         self.chk_auto.setChecked(True)
@@ -568,6 +581,7 @@ class TRSApp(QMainWindow):
         layout_trs.addWidget(grp_time)
         layout_trs.addWidget(grp_sim)
         layout_trs.addWidget(grp_noise)
+        layout_trs.addWidget(grp_sparse)
         layout_trs.addWidget(self.chk_auto)
         layout_trs.addWidget(self.btn_run)
         layout_trs.addWidget(self.btn_search)
@@ -905,6 +919,7 @@ class TRSApp(QMainWindow):
         self.slider_dt.valueChanged.connect(self.on_slider_dt_moved)
 
         self.noise_input.valueChanged.connect(self.on_param_changed)
+        self.sparse_input.valueChanged.connect(self.on_param_changed)
         self.chk_noise.stateChanged.connect(self.on_param_changed)
 
     #шум
@@ -917,6 +932,10 @@ class TRSApp(QMainWindow):
             "noise": self.noise_input.value(),
             "seed": NOISE_SEED,
         }
+
+    def get_sparse_dict(self):
+        return {"keep": self.sparse_input.value(), "seed": SPARSE_SEED}
+
     def export_iter_rms_csv(self):
         """Экспорт сходимости ошибки по итерациям (iteration; error)."""
         if not self.iter_rms:
@@ -980,7 +999,9 @@ class TRSApp(QMainWindow):
             "system": self.combo_system.currentText(),
             "master_0": [self.sp_mx.value(), self.sp_my.value(), self.sp_mz.value()],
             "slave_0": [self.sp_sx.value(), self.sp_sy.value(), self.sp_sz.value()],
-            "noise": {"enabled": self.chk_noise.isChecked(), "noise": self.noise_input.value()},            "K": [self.sp_kx_fwd.value(), self.sp_ky_fwd.value(), self.sp_kz_fwd.value()],
+            "noise": {"enabled": self.chk_noise.isChecked(), "noise": self.noise_input.value()},
+            "K": [self.sp_kx_fwd.value(), self.sp_ky_fwd.value(), self.sp_kz_fwd.value()],
+            "sparse": self.sparse_input.value(),
             "K_fwd": [self.sp_kx_fwd.value(), self.sp_ky_fwd.value(), self.sp_kz_fwd.value()],
             "K_bwd": [self.sp_kx_bwd.value(), self.sp_ky_bwd.value(), self.sp_kz_bwd.value()],
             "time": {
@@ -1050,6 +1071,8 @@ class TRSApp(QMainWindow):
         nz = p.get("noise", {})
         self.chk_noise.setChecked(nz.get("enabled", False))
         self.noise_input.setValue(nz.get("noise", 40.0))
+
+        self.sparse_input.setValue(p.get("sparse", 1.0))
 
         self._block_signals = False
 
@@ -1228,6 +1251,7 @@ class TRSApp(QMainWindow):
             N_iterations=self.sp_iter.value(),
             decimator=self.sp_decimator.value(),
             noise=self.get_noise_dict(),
+            sparse=self.get_sparse_dict(),
         )
 
         self._portrait_thread = PortraitWorker(worker_kwargs)
@@ -1283,6 +1307,7 @@ class TRSApp(QMainWindow):
             K_y_bwd=self.sp_ky_bwd.value(),
             K_z_bwd=self.sp_kz_bwd.value(),
             noise=self.get_noise_dict(),
+            sparse=self.get_sparse_dict(),
         )
 
         self.redraw_all()

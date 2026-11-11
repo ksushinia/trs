@@ -5,6 +5,19 @@ trs_solver.py
 import math
 import numpy as np
 
+def make_sparse_mask(n_points, keep=1.0, n_keep=None, seed=None):
+    #добавление разреживания точек в окне
+    rng = np.random.default_rng(seed)
+    if n_keep is None:
+        n_keep = int(round(np.clip(keep, 0.0, 1.0) * n_points))
+    n_keep = int(np.clip(n_keep, 0, n_points))
+
+    mask = np.zeros(n_points, dtype=bool)
+    if n_keep > 0:
+        idx = rng.choice(n_points, size=n_keep, replace=False)  # без повторов
+        mask[idx] = True
+    return mask
+
 def add_awgn_xyz(xm, ym, zm, noise, seed=None):
     #добавление шума
     rng = np.random.default_rng(seed)
@@ -16,7 +29,7 @@ def add_awgn_xyz(xm, ym, zm, noise, seed=None):
 def solve_trs(step_forward, step_backward, params, master_0, slave_0, h,
               t_start, t_end, N_iterations,
               K_x_fwd, K_y_fwd, K_z_fwd,
-              K_x_bwd, K_y_bwd, K_z_bwd, noise=None):
+              K_x_bwd, K_y_bwd, K_z_bwd, noise=None, sparse=None):
 
     N_steps = max(1, int(round((t_end - t_start) / h)))
 
@@ -49,6 +62,12 @@ def solve_trs(step_forward, step_backward, params, master_0, slave_0, h,
         )
     else:
         xo_arr, yo_arr, zo_arr = xm_arr, ym_arr, zm_arr
+
+    n_pts = N_steps + 1
+    if sparse and sparse.get("keep", 1.0) < 1.0: # проверка и добавление разреженности
+        mask = make_sparse_mask(n_pts, keep=sparse["keep"], seed=sparse.get("seed"))
+    else:
+        mask = np.ones(n_pts, dtype=bool)
 
     # -------------------------------------------------------------
     # 2. ЧЕЛНОЧНЫЙ TRS (SLAVE)
@@ -88,12 +107,18 @@ def solve_trs(step_forward, step_backward, params, master_0, slave_0, h,
                 run_t.append(t_arr[k])
                 run_err.append(err)
 
+                if mask[k]:
+                    kx, ky, kz = K_x_fwd, K_y_fwd, K_z_fwd
+                else:
+                    kx = ky = kz = 0.0
+
                 xs, ys, zs = step_forward(
                     xs, ys, zs, h,
                     xm=xo_arr[k], ym=yo_arr[k], zm=zo_arr[k],
-                    K_x=K_x_fwd, K_y=K_y_fwd, K_z=K_z_fwd,
+                    K_x=kx, K_y=ky, K_z=kz,
                     params=params
                 )
+
                 xs, ys, zs = clamp_state(xs), clamp_state(ys), clamp_state(zs)
 
             # Точка на правом краю
@@ -109,12 +134,18 @@ def solve_trs(step_forward, step_backward, params, master_0, slave_0, h,
                 run_t.append(t_arr[k])
                 run_err.append(err)
 
+                if mask[k]:
+                    kx, ky, kz = K_x_bwd, K_y_bwd, K_z_bwd
+                else:
+                    kx = ky = kz = 0.0
+
                 xs, ys, zs = step_backward(
                     xs, ys, zs, h,
                     xm=xo_arr[k], ym=yo_arr[k], zm=zo_arr[k],
-                    K_x=K_x_bwd, K_y=K_y_bwd, K_z=K_z_bwd,
+                    K_x=kx, K_y=ky, K_z=kz,
                     params=params
                 )
+
                 xs, ys, zs = clamp_state(xs), clamp_state(ys), clamp_state(zs)
 
             # Точка на левом краю
