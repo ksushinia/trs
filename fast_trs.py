@@ -41,7 +41,7 @@ def integrate_master(sys_id, p_arr, x0, y0, z0, h, n_total):
 @njit(nogil=True, fastmath=True)
 def run_fast_trs_window_score(sys_id, p_arr, xm_arr, ym_arr, zm_arr, i0, n_steps,
                               xs0, ys0, zs0, h, max_iters,
-                              kxf, kyf, kzf, kxb, kyb, kzb, target_err):
+                              kxf, kyf, kzf, kxb, kyb, kzb, target_err, mask):
     """
     TRS по окну [i0, i0+n_steps] готовой траектории Master.
     Возвращает (ok, iters, score), score = log10(ошибки) — непрерывная целевая функция.
@@ -53,8 +53,9 @@ def run_fast_trs_window_score(sys_id, p_arr, xm_arr, ym_arr, zm_arr, i0, n_steps
         if it % 2 == 0:
             for k in range(n_steps):
                 j = i0 + k
+                w = mask[k]
                 xs, ys, zs = _step_fwd_dispatch(sys_id, xs, ys, zs, h,
-                                                xm_arr[j], ym_arr[j], zm_arr[j], kxf, kyf, kzf, p_arr)
+                                                xm_arr[j], ym_arr[j], zm_arr[j], kxf*w, kyf*w, kzf*w, p_arr)
                 if np.isnan(xs) or abs(xs) > 1e4:
                     return False, it + 1, 5.0 - it / max_iters
             ex = xm_arr[i0 + n_steps] - xs
@@ -63,8 +64,9 @@ def run_fast_trs_window_score(sys_id, p_arr, xm_arr, ym_arr, zm_arr, i0, n_steps
         else:
             for k in range(n_steps, 0, -1):
                 j = i0 + k
+                w = mask[k]
                 xs, ys, zs = _step_bwd_dispatch(sys_id, xs, ys, zs, h,
-                                                xm_arr[j], ym_arr[j], zm_arr[j], kxb, kyb, kzb, p_arr)
+                                                xm_arr[j], ym_arr[j], zm_arr[j], kxb*w, kyb*w, kzb*w, p_arr)
                 if np.isnan(xs) or abs(xs) > 1e4:
                     return False, it + 1, 5.0 - it / max_iters
             ex = xm_arr[i0] - xs
@@ -109,7 +111,7 @@ def run_fast_candidate_trs(sys_id, p_arr,
                            max_iters,
                            kxf, kyf, kzf,
                            kxb, kyb, kzb,
-                           target_err):
+                           target_err, mask):
     n_steps = max(1, int(round(dt / h)))
     steps_to_start = int(round(t_start / h))
 
@@ -151,7 +153,8 @@ def run_fast_candidate_trs(sys_id, p_arr,
     for it in range(max_iters):
         if it % 2 == 0:
             for k in range(n_steps):
-                xs, ys, zs = _step_fwd_dispatch(sys_id, xs, ys, zs, h, xm_arr[k], ym_arr[k], zm_arr[k], kxf, kyf, kzf, p_arr)
+                w = mask[k]
+                xs, ys, zs = _step_fwd_dispatch(sys_id, xs, ys, zs, h, xm_arr[k], ym_arr[k], zm_arr[k], kxf*w, kyf*w, kzf*w, p_arr)
                 if np.isnan(xs) or abs(xs) > 1e4:
                     return False, it + 1, 1000.0
             ex = xm_arr[n_steps] - xs
@@ -159,7 +162,8 @@ def run_fast_candidate_trs(sys_id, p_arr,
             ez = zm_arr[n_steps] - zs
         else:
             for k in range(n_steps, 0, -1):
-                xs, ys, zs = _step_bwd_dispatch(sys_id, xs, ys, zs, h, xm_arr[k], ym_arr[k], zm_arr[k], kxb, kyb, kzb, p_arr)
+                w = mask[k]
+                xs, ys, zs = _step_bwd_dispatch(sys_id, xs, ys, zs, h, xm_arr[k], ym_arr[k], zm_arr[k], kxb*w, kyb*w, kzb*w, p_arr)
                 if np.isnan(xs) or abs(xs) > 1e4:
                     return False, it + 1, 1000.0
             ex = xm_arr[0] - xs
@@ -207,7 +211,7 @@ def run_fast_trs_slave_window(sys_id, p_arr,
                               h, n_steps, max_iters,
                               kxf, kyf, kzf,
                               kxb, kyb, kzb,
-                              target_err):
+                              target_err, mask):
     """
     Сверхбыстрый расчет сходимости Slave по уже рассчитанной траектории Master.
     Не тратит время на повторное интегрирование Master от 0 до t_start.
@@ -219,10 +223,11 @@ def run_fast_trs_slave_window(sys_id, p_arr,
         if it % 2 == 0:
             # FORWARD
             for k in range(n_steps):
+                w = mask[k]
                 xs, ys, zs = _step_fwd_dispatch(
                     sys_id, xs, ys, zs, h,
                     xm_arr[k], ym_arr[k], zm_arr[k],
-                    kxf, kyf, kzf, p_arr
+                    kxf*w, kyf*w, kzf*w, p_arr
                 )
                 if np.isnan(xs) or abs(xs) > 1e4:
                     return False, it + 1, 1000.0
@@ -232,10 +237,11 @@ def run_fast_trs_slave_window(sys_id, p_arr,
         else:
             # BACKWARD
             for k in range(n_steps, 0, -1):
+                w = mask[k]
                 xs, ys, zs = _step_bwd_dispatch(
                     sys_id, xs, ys, zs, h,
                     xm_arr[k], ym_arr[k], zm_arr[k],
-                    kxb, kyb, kzb, p_arr
+                    kxb*w, kyb*w, kzb*w, p_arr
                 )
                 if np.isnan(xs) or abs(xs) > 1e4:
                     return False, it + 1, 1000.0
@@ -257,7 +263,7 @@ def run_fast_trs_slave_window(sys_id, p_arr,
 def run_fast_portrait_chunk(sys_id, p_arr, xm, ym, zm, xo, yo, zo,
                             start_indices, ns, nglobal,
                             kxf, kyf, kzf, kxb, kyb, kzb, h, use_matlab_shift,
-                            sx0, sy0, sz0):
+                            sx0, sy0, sz0, mask):
     n_pts = len(start_indices)
     err10_out = np.empty(n_pts, dtype=np.float64)
 
@@ -279,6 +285,7 @@ def run_fast_portrait_chunk(sys_id, p_arr, xm, ym, zm, xo, yo, zo,
             # FORWARD
             for i in range(ns - 1):
                 cur_m = start_idx + i
+                w = mask[i]
                 if j == nglobal and i == ns - 2:
                     ex = xm[cur_m] - xs
                     ey = ym[cur_m] - ys
@@ -288,7 +295,7 @@ def run_fast_portrait_chunk(sys_id, p_arr, xm, ym, zm, xo, yo, zo,
                 xs, ys, zs = _step_fwd_dispatch(
                     sys_id, xs, ys, zs, h,
                     xo[cur_m], yo[cur_m], zo[cur_m],
-                    kxf, kyf, kzf, p_arr
+                    kxf*w, kyf*w, kzf*w, p_arr
                 )
                 if np.isnan(xs) or abs(xs) > 1e4:
                     diverged = True
@@ -301,10 +308,11 @@ def run_fast_portrait_chunk(sys_id, p_arr, xm, ym, zm, xo, yo, zo,
             if j < nglobal:
                 for i in range(ns - 1, 0, -1):
                     cur_m = start_idx + i
+                    w = mask[i]
                     xs, ys, zs = _step_bwd_dispatch(
                         sys_id, xs, ys, zs, h,
                         xo[cur_m], yo[cur_m], zo[cur_m],
-                        kxb, kyb, kzb, p_arr
+                        kxb*w, kyb*w, kzb*w, p_arr
                     )
                     if np.isnan(xs) or abs(xs) > 1e4:
                         diverged = True
