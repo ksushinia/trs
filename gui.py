@@ -431,14 +431,32 @@ class TRSApp(QMainWindow):
 
         grp_sparse = QGroupBox("Разреживание точек в окне")
         grid_sparse = QGridLayout(grp_sparse)
+
+        self._sparse_sync = False  # защита от рекурсии при синхронизации полей
+
         grid_sparse.addWidget(QLabel("Доля точек:"), 0, 0)
         self.sparse_input = QDoubleSpinBox()
         self.sparse_input.setRange(0.0, 1.0)
-        self.sparse_input.setDecimals(3)
+        self.sparse_input.setDecimals(6)
         self.sparse_input.setSingleStep(0.05)
         self.sparse_input.setValue(1.0)
         self.sparse_input.setToolTip("Доля точек окна, в которых слейв получает мастера (1 = все точки)")
         grid_sparse.addWidget(self.sparse_input, 0, 1)
+
+        grid_sparse.addWidget(QLabel("Кол-во точек:"), 1, 0)
+        self.sparse_count = QSpinBox()
+        self.sparse_count.setRange(0, self._window_points())
+        self.sparse_count.setValue(self.sparse_count.maximum())
+        grid_sparse.addWidget(self.sparse_count, 1, 1)
+
+        self.slider_sparse_count = QSlider(Qt.Orientation.Horizontal)
+        self.slider_sparse_count.setRange(0, self._window_points())
+        self.slider_sparse_count.setValue(self.slider_sparse_count.maximum())
+        grid_sparse.addWidget(self.slider_sparse_count, 2, 0, 1, 2)
+
+        self.lbl_window_pts = QLabel()
+        self.lbl_window_pts.setStyleSheet("color: gray; font-size: 11px;")
+        grid_sparse.addWidget(self.lbl_window_pts, 3, 0, 1, 2)
 
         self.chk_auto = QCheckBox("Авто-пересчет при изменениях")
         self.chk_auto.setChecked(True)
@@ -920,6 +938,12 @@ class TRSApp(QMainWindow):
 
         self.noise_input.valueChanged.connect(self.on_param_changed)
         self.sparse_input.valueChanged.connect(self.on_param_changed)
+        self.sparse_input.valueChanged.connect(self.on_sparse_frac_changed)
+        self.sparse_count.valueChanged.connect(self.on_sparse_count_changed)
+        self.slider_sparse_count.valueChanged.connect(self.on_sparse_count_changed)
+        self.sp_dt.valueChanged.connect(self._refresh_sparse_limits)
+        self.sp_h.valueChanged.connect(self._refresh_sparse_limits)
+        self._refresh_sparse_limits()
         self.chk_noise.stateChanged.connect(self.on_param_changed)
 
     #шум
@@ -935,6 +959,42 @@ class TRSApp(QMainWindow):
 
     def get_sparse_dict(self):
         return {"keep": self.sparse_input.value(), "seed": SPARSE_SEED}
+
+    def _window_points(self):
+        h = max(1e-9, self.sp_h.value())
+        return max(2, int(round(self.sp_dt.value() / h)) + 1) #dt/h + 1
+
+    def _refresh_sparse_limits(self):
+        n = self._window_points()
+        self._sparse_sync = True
+        self.sparse_count.setMaximum(n)
+        self.slider_sparse_count.setMaximum(n)
+        cnt = int(round(self.sparse_input.value() * n))
+        self.sparse_count.setValue(cnt)
+        self.slider_sparse_count.setValue(cnt)
+        self.lbl_window_pts.setText(f"Точек в окне: {n}")
+        self._sparse_sync = False
+
+    def on_sparse_frac_changed(self, val):
+        if self._sparse_sync:
+            return
+        n = self._window_points()
+        cnt = int(round(val * n))
+        self._sparse_sync = True
+        self.sparse_count.setValue(cnt)
+        self.slider_sparse_count.setValue(cnt)
+        self._sparse_sync = False
+
+    def on_sparse_count_changed(self, cnt):
+        if self._sparse_sync:
+            return
+        n = self._window_points()
+        self._sparse_sync = True
+        self.sparse_count.setValue(cnt)
+        self.slider_sparse_count.setValue(cnt)
+        self.sparse_input.setValue(min(1.0, cnt / n))
+        self._sparse_sync = False
+        self.on_param_changed()
 
     def export_iter_rms_csv(self):
         """Экспорт сходимости ошибки по итерациям (iteration; error)."""
